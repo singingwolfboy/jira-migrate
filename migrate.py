@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 from ConfigParser import SafeConfigParser
 import functools
 import requests
@@ -196,6 +198,13 @@ def parse_sprint_string(sprint_str):
 
 
 def migrate_issue(old_issue, idempotent=True):
+    """Migrate an issue, but only once.
+
+    If the issue has already been migrated, this does nothing.
+
+    Returns the new issue key, even if the issue had already been migrated.
+
+    """
     old_key = old_issue["key"]
     # if this is idempotent, first check if this issue has already been migrated.
     if idempotent:
@@ -234,7 +243,10 @@ def migrate_issue(old_issue, idempotent=True):
         for field, message in errors.items():
             if field in new_fields:
                 errors[field] += " ({})".format(new_fields[field])
+        print("="*20, " tried to make:")
         pprint(new_issue)
+        print("="*20, " got this back:")
+        pprint(new_issue_resp.json())
         print("=" * 20)
         pprint(errors)
 
@@ -282,5 +294,5 @@ if __name__ == "__main__":
     gen = paginated_search(JQL, old_host, old_session)
     issue = gen.next()
     old_key = issue["key"]
-    new_key = migrate_issue(issue)
+    new_key = migrate_issue(issue, idempotent=True)
     print("Migrated {old} to {new}".format(old=old_key, new=new_key))
