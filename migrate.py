@@ -238,8 +238,7 @@ def migrate_issue(old_issue, idempotent=True):
 
     If the issue has already been migrated, this does nothing.
 
-    Returns the new issue key, even if the issue had already been migrated.
-
+    Returns a tuple of (new_key, migrated_boolean)
     """
     old_key = old_issue["key"]
     # if this is idempotent, first check if this issue has already been migrated.
@@ -253,7 +252,7 @@ def migrate_issue(old_issue, idempotent=True):
                 if "openedx" in url and "Migrated Issue" in title:
                     # already been migrated!
                     new_key = url.rsplit("/", 1)[-1]
-                    return new_key
+                    return new_key, False
         else:
             print("Warning: could not check for idempotency for {key}".format(
                 key=old_key
@@ -316,19 +315,25 @@ def migrate_issue(old_issue, idempotent=True):
         errors = old_link_resp.json()["errors"]
         pprint(errors)
 
-    return new_key
+    return new_key, True
 
 
 def main():
     for issue in paginated_search(JQL, old_host, old_session):
         old_key = issue["key"]
-        new_key = migrate_issue(issue)
-        print("Migrated {old} to {new}".format(old=old_key, new=new_key))
+        new_key, migrated = migrate_issue(issue)
+        if migrated:
+            print("Migrated {old} to {new}".format(old=old_key, new=new_key))
+        else:
+            print("{old} was previously migrated to {new}".format(old=old_key, new=new_key))
 
 
 if __name__ == "__main__":
     gen = paginated_search(JQL, old_host, old_session)
     issue = gen.next()
     old_key = issue["key"]
-    new_key = migrate_issue(issue, idempotent=True)
-    print("Migrated {old} to {new}".format(old=old_key, new=new_key))
+    new_key, migrated = migrate_issue(issue, idempotent=True)
+    if migrated:
+        print("Migrated {old} to {new}".format(old=old_key, new=new_key))
+    else:
+        print("{old} was previously migrated to {new}".format(old=old_key, new=new_key))
