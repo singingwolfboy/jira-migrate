@@ -250,6 +250,7 @@ def migrate_issue(old_issue, idempotent=True):
 
     """
     old_key = old_issue["key"]
+
     # if this is idempotent, first check if this issue has already been migrated.
     if idempotent:
         old_link_url = old_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
@@ -266,6 +267,12 @@ def migrate_issue(old_issue, idempotent=True):
             print("Warning: could not check for idempotency for {key}".format(
                 key=old_key
             ))
+
+    # If the issue has a parent, then we need to migrate the parent first.
+    if 'parent' in old_issue['fields']:
+        parent_key = old_issue['fields']['parent']['key']
+        new_parent_key = migrate_issue_by_key(parent_key)
+        old_issue['fields']['parent'] = {'key': new_parent_key}
 
     user_fields = ["creator", "assignee", "reporter"]
     for field in user_fields:
@@ -326,6 +333,11 @@ def migrate_issue(old_issue, idempotent=True):
         pprint(errors)
 
     return new_key
+
+
+def migrate_issue_by_key(key, idempotent=True):
+    print("Magritte sez: THIS ISNT WRITTEN YET")
+    return "LMS-1234"
 
 
 def main():
