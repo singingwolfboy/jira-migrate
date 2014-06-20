@@ -301,7 +301,7 @@ def migrate_issue(old_issue, idempotent=True):
         pprint(new_issue_resp.json())
         print("=" * 20)
         pprint(errors)
-        return None
+        return None, False
 
     new_key = new_issue_resp.json()["key"]
 
