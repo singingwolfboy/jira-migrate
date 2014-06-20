@@ -58,6 +58,7 @@ if not files_read:
     print("Couldn't read config.ini")
     sys.exit(1)
 
+
 class HelpfulSession(object):
     def __init__(self, nick, host, username, password):
         self.nick = nick
@@ -79,19 +80,19 @@ class HelpfulSession(object):
         return self.session.post(url, *args, **kwargs)
 
 old_session = HelpfulSession(
-                nick="old  ",
-                host=config.get("origin", "host"),
-                username=config.get("origin", "username"),
-                password=config.get("origin", "password"),
-                )
+    nick="old  ",
+    host=config.get("origin", "host"),
+    username=config.get("origin", "username"),
+    password=config.get("origin", "password"),
+)
 old_host = old_session.host
 
 new_session = HelpfulSession(
-                nick="  new",
-                host=config.get("destination", "host"),
-                username=config.get("destination", "username"),
-                password=config.get("destination", "password"),
-                )
+    nick="  new",
+    host=config.get("destination", "host"),
+    username=config.get("destination", "username"),
+    password=config.get("destination", "password"),
+)
 new_host = new_session.host
 
 # simple name-to-id mappings for our new instance
@@ -131,11 +132,12 @@ def paginated_search(jql, host, session=None, start=0, **fields):
     session = session or requests.Session()
     more_results = True
     while more_results:
-        search_url = (host.with_path("/rest/api/2/search")
-                          .add_query_param("jql", jql)
-                          .add_query_param("startAt", str(start))
-                          .set_query_params(**fields)
-                     )
+        search_url = (
+            host.with_path("/rest/api/2/search")
+                .add_query_param("jql", jql)
+                .add_query_param("startAt", str(start))
+                .set_query_params(**fields)
+        )
         search_resp = session.get(search_url)
         search = search_resp.json()
         for issue in search["issues"]:
@@ -246,8 +248,7 @@ def migrate_issue(old_issue, idempotent=True):
 
     If the issue has already been migrated, this does nothing.
 
-    Returns the new issue key, even if the issue had already been migrated.
-
+    Returns a tuple of (new_key, migrated_boolean)
     """
     old_key = old_issue["key"]
 
@@ -262,7 +263,7 @@ def migrate_issue(old_issue, idempotent=True):
                 if str(new_host) in url and "Migrated Issue" in title:
                     # already been migrated!
                     new_key = url.rsplit("/", 1)[-1]
-                    return new_key
+                    return new_key, False
         else:
             print("Warning: could not check for idempotency for {key}".format(
                 key=old_key
@@ -294,9 +295,9 @@ def migrate_issue(old_issue, idempotent=True):
         for field, message in errors.items():
             if field in new_fields:
                 errors[field] += " ({})".format(new_fields[field])
-        print("="*20, " tried to make:")
+        print("=" * 20, " tried to make:")
         pprint(new_issue)
-        print("="*20, " got this back:")
+        print("=" * 20, " got this back:")
         pprint(new_issue_resp.json())
         print("=" * 20)
         pprint(errors)
@@ -332,7 +333,7 @@ def migrate_issue(old_issue, idempotent=True):
         errors = old_link_resp.json()["errors"]
         pprint(errors)
 
-    return new_key
+    return new_key, True
 
 
 def migrate_issue_by_key(key, idempotent=True):
@@ -344,8 +345,11 @@ def main():
     issues = paginated_search(CMDLINE_ARGS.jql, old_host, old_session)
     for issue in itertools.islice(issues, CMDLINE_ARGS.limit):
         old_key = issue["key"]
-        new_key = migrate_issue(issue)
-        print("Migrated {old} to {new}".format(old=old_key, new=new_key))
+        new_key, migrated = migrate_issue(issue)
+        if migrated:
+            print("Migrated {old} to {new}".format(old=old_key, new=new_key))
+        else:
+            print("{old} was previously migrated to {new}".format(old=old_key, new=new_key))
 
 
 if __name__ == "__main__":
