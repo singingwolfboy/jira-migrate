@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import argparse
 from ConfigParser import SafeConfigParser
 import functools
 import requests
@@ -8,6 +9,18 @@ import json
 from pprint import pprint
 import re
 import sys
+
+def parse_arguments(argv):
+    parser = argparse.ArgumentParser(description="Migrate JIRA tickets")
+    parser.add_argument("--debug", default="")
+
+    args = parser.parse_args(argv[1:])
+
+    args.debug = args.debug.split(",")
+
+    return args
+
+CMDLINE_ARGS = parse_arguments(sys.argv)
 
 JQL = "project = LMS AND created >= -6w"
 
@@ -34,15 +47,41 @@ if not files_read:
     print("Couldn't read config.ini")
     sys.exit(1)
 
-old_host = URLObject(config.get("origin", "host"))
-old_session = requests.Session()
-old_session.auth = (config.get("origin", "username"), config.get("origin", "password"))
-old_session.headers["Content-Type"] = "application/json"
+class HelpfulSession(object):
+    def __init__(self, nick, host, username, password):
+        self.nick = nick
+        self.host = URLObject(host)
+        self.session = requests.Session()
+        self.session.auth = (username, password)
+        self.session.headers["Content-Type"] = "application/json"
 
-new_host = URLObject(config.get("destination", "host"))
-new_session = requests.Session()
-new_session.auth = (config.get("destination", "username"), config.get("destination", "password"))
-new_session.headers["Content-Type"] = "application/json"
+    MSG_FMT = "{:4s} {}"
+
+    def get(self, url, *args, **kwargs):
+        if "requests" in CMDLINE_ARGS.debug:
+            print(self.MSG_FMT.format("GET", url))
+        return self.session.get(url, *args, **kwargs)
+
+    def post(self, url, *args, **kwargs):
+        if "requests" in CMDLINE_ARGS.debug:
+            print(self.MSG_FMT.format("POST", url))
+        return self.session.post(url, *args, **kwargs)
+
+old_session = HelpfulSession(
+                nick="old",
+                host=config.get("origin", "host"),
+                username=config.get("origin", "username"),
+                password=config.get("origin", "password"),
+                )
+old_host = old_session.host
+
+new_session = HelpfulSession(
+                nick="old",
+                host=config.get("destination", "host"),
+                username=config.get("destination", "username"),
+                password=config.get("destination", "password"),
+                )
+new_host = new_session.host
 
 # simple name-to-id mappings for our new instance
 name_to_id = {}
