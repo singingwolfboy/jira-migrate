@@ -3,12 +3,15 @@ from __future__ import print_function
 import argparse
 from ConfigParser import SafeConfigParser
 import functools
-import requests
-from urlobject import URLObject
+import itertools
 import json
 from pprint import pprint
 import re
 import sys
+
+import requests
+from urlobject import URLObject
+
 
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(
@@ -19,6 +22,9 @@ def parse_arguments(argv):
     parser.add_argument("--jql",
         help="The JIRA JQL query to find issues to migrate",
         default="project = LMS AND created >= -6w",
+    )
+    parser.add_argument("--limit", type=int,
+        help="Don't migrate more than this many issues",
     )
 
     args = parser.parse_args(argv[1:])
@@ -322,15 +328,12 @@ def migrate_issue(old_issue, idempotent=True):
 
 
 def main():
-    for issue in paginated_search(CMDLINE_ARGS.jql, old_host, old_session):
+    issues = paginated_search(CMDLINE_ARGS.jql, old_host, old_session)
+    for issue in itertools.islice(issues, CMDLINE_ARGS.limit):
         old_key = issue["key"]
         new_key = migrate_issue(issue)
         print("Migrated {old} to {new}".format(old=old_key, new=new_key))
 
 
 if __name__ == "__main__":
-    gen = paginated_search(CMDLINE_ARGS.jql, old_host, old_session)
-    issue = next(gen)
-    old_key = issue["key"]
-    new_key = migrate_issue(issue, idempotent=True)
-    print("Migrated {old} to {new}".format(old=old_key, new=new_key))
+    main()
