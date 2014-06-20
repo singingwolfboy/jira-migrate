@@ -258,7 +258,7 @@ def migrate_issue(old_issue, idempotent=True):
             for old_link in old_link_resp.json():
                 url = old_link["object"].get("url", "")
                 title = old_link["object"].get("title", "")
-                if "openedx" in url and "Migrated Issue" in title:
+                if str(new_host) in url and "Migrated Issue" in title:
                     # already been migrated!
                     new_key = url.rsplit("/", 1)[-1]
                     return new_key
@@ -293,6 +293,7 @@ def migrate_issue(old_issue, idempotent=True):
         pprint(new_issue_resp.json())
         print("=" * 20)
         pprint(errors)
+        return None
 
     new_key = new_issue_resp.json()["key"]
 
