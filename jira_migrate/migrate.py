@@ -119,8 +119,9 @@ for name in ["Migrated Sprint", "Migrated Status"]:
 fields_that_cannot_be_set = set((
     "aggregateprogress", "created", "creator", "progress", "status", "updated",
     "votes", "watches", "workratio", "lastViewed", "resolution", "resolutiondate",
+    "worklog", "timespent", "aggregatetimespent",
     # find a way to do these:
-    "environment",
+    "environment", "issuelinks",
     # structural things we do another way:
     "subtasks", "comment",
     # custom fields that cannot be set
@@ -129,6 +130,7 @@ fields_that_cannot_be_set = set((
     new_fields_name_to_id["Testing Status"],
     new_fields_name_to_id["[CHART] Time in Status"],
     new_fields_name_to_id["[CHART] Date of First Response"],
+    new_fields_name_to_id["Epic Status"],
 ))
 
 
@@ -231,15 +233,15 @@ def migrate_issue(old_issue, idempotent=True):
     # If the issue has a parent, then we need to migrate the parent first.
     if old_issue['fields'].get('parent', None):
         parent_key = old_issue['fields']['parent']['key']
-        print("Migrating parent {}".format(parent_key))
         new_parent_key, _ = migrate_issue_by_key(parent_key)
+        if not new_parent_key:
+            raise ValueError("Parent was not migrated, so child cannot be migrated ({})".format(old_key))
         old_issue['fields']['parent'] = {'key': new_parent_key}
 
     # If the issue is in an epic, we need to migrate the epic first.
     epic_field_id = old_fields_name_to_id["Epic Link"]
     if old_issue['fields'].get(epic_field_id, None):
         epic_key = old_issue['fields'][epic_field_id]
-        print("Migrating epic {}".format(epic_key))
         new_epic_key, _ = migrate_issue_by_key(epic_key)
         old_issue['fields'][epic_field_id] = new_epic_key
 
