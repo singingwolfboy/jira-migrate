@@ -10,6 +10,7 @@ from pprint import pprint
 import re
 import sys
 
+
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(description="Migrate JIRA tickets")
     parser.add_argument("--debug", default="")
@@ -47,6 +48,7 @@ if not files_read:
     print("Couldn't read config.ini")
     sys.exit(1)
 
+
 class HelpfulSession(object):
     def __init__(self, nick, host, username, password):
         self.nick = nick
@@ -68,19 +70,19 @@ class HelpfulSession(object):
         return self.session.post(url, *args, **kwargs)
 
 old_session = HelpfulSession(
-                nick="old  ",
-                host=config.get("origin", "host"),
-                username=config.get("origin", "username"),
-                password=config.get("origin", "password"),
-                )
+    nick="old  ",
+    host=config.get("origin", "host"),
+    username=config.get("origin", "username"),
+    password=config.get("origin", "password"),
+)
 old_host = old_session.host
 
 new_session = HelpfulSession(
-                nick="  new",
-                host=config.get("destination", "host"),
-                username=config.get("destination", "username"),
-                password=config.get("destination", "password"),
-                )
+    nick="  new",
+    host=config.get("destination", "host"),
+    username=config.get("destination", "username"),
+    password=config.get("destination", "password"),
+)
 new_host = new_session.host
 
 # simple name-to-id mappings for our new instance
@@ -120,11 +122,12 @@ def paginated_search(jql, host, session=None, start=0, **fields):
     session = session or requests.Session()
     more_results = True
     while more_results:
-        search_url = (host.with_path("/rest/api/2/search")
-                          .add_query_param("jql", jql)
-                          .add_query_param("startAt", str(start))
-                          .set_query_params(**fields)
-                     )
+        search_url = (
+            host.with_path("/rest/api/2/search")
+                .add_query_param("jql", jql)
+                .add_query_param("startAt", str(start))
+                .set_query_params(**fields)
+        )
         search_resp = session.get(search_url)
         search = search_resp.json()
         for issue in search["issues"]:
@@ -276,9 +279,9 @@ def migrate_issue(old_issue, idempotent=True):
         for field, message in errors.items():
             if field in new_fields:
                 errors[field] += " ({})".format(new_fields[field])
-        print("="*20, " tried to make:")
+        print("=" * 20, " tried to make:")
         pprint(new_issue)
-        print("="*20, " got this back:")
+        print("=" * 20, " got this back:")
         pprint(new_issue_resp.json())
         print("=" * 20)
         pprint(errors)
