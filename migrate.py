@@ -1,3 +1,6 @@
+from __future__ import print_function
+
+import argparse
 from ConfigParser import SafeConfigParser
 import functools
 import requests
@@ -5,6 +8,19 @@ from urlobject import URLObject
 import json
 from pprint import pprint
 import re
+import sys
+
+def parse_arguments(argv):
+    parser = argparse.ArgumentParser(description="Migrate JIRA tickets")
+    parser.add_argument("--debug", default="")
+
+    args = parser.parse_args(argv[1:])
+
+    args.debug = args.debug.split(",")
+
+    return args
+
+CMDLINE_ARGS = parse_arguments(sys.argv)
 
 JQL = "project = LMS AND created >= -6w"
 
@@ -26,17 +42,46 @@ SPRINT_RE = re.compile(
 )
 
 config = SafeConfigParser()
-config.read("config.ini")
+files_read = config.read("config.ini")
+if not files_read:
+    print("Couldn't read config.ini")
+    sys.exit(1)
 
-old_host = URLObject(config.get("origin", "host"))
-old_session = requests.Session()
-old_session.auth = (config.get("origin", "username"), config.get("origin", "password"))
-old_session.headers["Content-Type"] = "application/json"
+class HelpfulSession(object):
+    def __init__(self, nick, host, username, password):
+        self.nick = nick
+        self.host = URLObject(host)
+        self.session = requests.Session()
+        self.session.auth = (username, password)
+        self.session.headers["Content-Type"] = "application/json"
 
-new_host = URLObject(config.get("destination", "host"))
-new_session = requests.Session()
-new_session.auth = (config.get("destination", "username"), config.get("destination", "password"))
-new_session.headers["Content-Type"] = "application/json"
+    MSG_FMT = "{:4s} {:5s} {}"
+
+    def get(self, url, *args, **kwargs):
+        if "requests" in CMDLINE_ARGS.debug:
+            print(self.MSG_FMT.format("GET", self.nick, url))
+        return self.session.get(url, *args, **kwargs)
+
+    def post(self, url, *args, **kwargs):
+        if "requests" in CMDLINE_ARGS.debug:
+            print(self.MSG_FMT.format("POST", self.nick, url))
+        return self.session.post(url, *args, **kwargs)
+
+old_session = HelpfulSession(
+                nick="old  ",
+                host=config.get("origin", "host"),
+                username=config.get("origin", "username"),
+                password=config.get("origin", "password"),
+                )
+old_host = old_session.host
+
+new_session = HelpfulSession(
+                nick="  new",
+                host=config.get("destination", "host"),
+                username=config.get("destination", "username"),
+                password=config.get("destination", "password"),
+                )
+new_host = new_session.host
 
 # simple name-to-id mappings for our new instance
 name_to_id = {}
@@ -46,16 +91,6 @@ for field in ("project", "issuetype", "priority", "resolution", "status"):
     info = {x["name"]: x["id"] for x in resp.json()}
     name_to_id[field] = info
 
-
-# list new projects
-new_project_url = new_host.with_path("/rest/api/2/project")
-new_project_resp = new_session.get(new_project_url)
-new_projects = {p["name"]: p["id"] for p in new_project_resp.json()}
-
-# list issue type information
-new_issuetype_url = new_host.with_path("/rest/api/2/issuetype")
-new_issuetype_resp = new_session.get(new_issuetype_url)
-new_issuetypes = {it["name"]: it["id"] for it in new_issuetype_resp.json()}
 
 # grab field information
 old_field_url = old_host.with_path("/rest/api/2/field")
@@ -196,6 +231,13 @@ def parse_sprint_string(sprint_str):
 
 
 def migrate_issue(old_issue, idempotent=True):
+    """Migrate an issue, but only once.
+
+    If the issue has already been migrated, this does nothing.
+
+    Returns the new issue key, even if the issue had already been migrated.
+
+    """
     old_key = old_issue["key"]
     # if this is idempotent, first check if this issue has already been migrated.
     if idempotent:
@@ -234,7 +276,10 @@ def migrate_issue(old_issue, idempotent=True):
         for field, message in errors.items():
             if field in new_fields:
                 errors[field] += " ({})".format(new_fields[field])
+        print("="*20, " tried to make:")
         pprint(new_issue)
+        print("="*20, " got this back:")
+        pprint(new_issue_resp.json())
         print("=" * 20)
         pprint(errors)
 
@@ -282,5 +327,5 @@ if __name__ == "__main__":
     gen = paginated_search(JQL, old_host, old_session)
     issue = gen.next()
     old_key = issue["key"]
-    new_key = migrate_issue(issue)
+    new_key = migrate_issue(issue, idempotent=True)
     print("Migrated {old} to {new}".format(old=old_key, new=new_key))
