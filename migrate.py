@@ -121,14 +121,16 @@ field_map = {old_id: new_fields_name_to_id[name] for old_id, name in old_fields.
              if name in new_fields_name_to_id}
 
 
-fields_that_cannot_be_set = (
+fields_that_cannot_be_set = set((
     "aggregateprogress", "created", "creator", "progress", "status", "updated",
-    "votes", "watches", "workratio",
+    "votes", "watches", "workratio", "lastViewed", "resolution",
     # custom fields that cannot be set
     new_fields_name_to_id["Rank"],
     new_fields_name_to_id["Rank (Obsolete)"],
     new_fields_name_to_id["Testing Status"],
-)
+    new_fields_name_to_id["[CHART] Time in Status"],
+    new_fields_name_to_id["[CHART] Date of First Response"],
+))
 
 
 # list issues: have to use search API
