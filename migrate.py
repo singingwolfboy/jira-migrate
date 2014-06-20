@@ -55,20 +55,20 @@ class HelpfulSession(object):
         self.session.auth = (username, password)
         self.session.headers["Content-Type"] = "application/json"
 
-    MSG_FMT = "{:4s} {}"
+    MSG_FMT = "{:4s} {:5s} {}"
 
     def get(self, url, *args, **kwargs):
         if "requests" in CMDLINE_ARGS.debug:
-            print(self.MSG_FMT.format("GET", url))
+            print(self.MSG_FMT.format("GET", self.nick, url))
         return self.session.get(url, *args, **kwargs)
 
     def post(self, url, *args, **kwargs):
         if "requests" in CMDLINE_ARGS.debug:
-            print(self.MSG_FMT.format("POST", url))
+            print(self.MSG_FMT.format("POST", self.nick, url))
         return self.session.post(url, *args, **kwargs)
 
 old_session = HelpfulSession(
-                nick="old",
+                nick="old  ",
                 host=config.get("origin", "host"),
                 username=config.get("origin", "username"),
                 password=config.get("origin", "password"),
@@ -76,7 +76,7 @@ old_session = HelpfulSession(
 old_host = old_session.host
 
 new_session = HelpfulSession(
-                nick="old",
+                nick="  new",
                 host=config.get("destination", "host"),
                 username=config.get("destination", "username"),
                 password=config.get("destination", "password"),
