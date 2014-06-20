@@ -324,7 +324,12 @@ def migrate_issue(old_issue, idempotent=True):
                     email=user_info.get("emailAddress", ""),
                     session=new_session,
                 )
-        new_session.post(new_comments_url, body=json.dumps(old_comment))
+        # can't set the comment author or creation date, so prefix those in the comment body
+        prefix = "[~{author}] commented on {date}:\n\n".format(
+            author=old_comment["author"]["name"], date=old_comment["created"]
+        )
+        old_comment["body"] = prefix + old_comment["body"]
+        new_session.post(new_comments_url, data=json.dumps(old_comment))
 
     # link new to old
     new_link_url = new_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=new_key))
