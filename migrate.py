@@ -124,7 +124,7 @@ field_map = {old_id: new_fields_name_to_id[name] for old_id, name in old_fields.
 
 fields_that_cannot_be_set = set((
     "aggregateprogress", "created", "creator", "progress", "status", "updated",
-    "votes", "watches", "workratio", "lastViewed", "resolution",
+    "votes", "watches", "workratio", "lastViewed", "resolution", "resolutiondate",
     # custom fields that cannot be set
     new_fields_name_to_id["Rank"],
     new_fields_name_to_id["Rank (Obsolete)"],
