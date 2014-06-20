@@ -128,22 +128,20 @@ fields_that_cannot_be_set = (
 
 
 # list issues: have to use search API
-def paginated_search(jql, host, session=None, start=0, **fields):
+def paginated_api(url, obj_name, session=None, start=0, **fields):
     session = session or requests.Session()
     more_results = True
     while more_results:
-        search_url = (
-            host.with_path("/rest/api/2/search")
-                .add_query_param("jql", jql)
-                .add_query_param("startAt", str(start))
-                .set_query_params(**fields)
+        result_url = (
+            url.set_query_param("startAt", str(start))
+               .set_query_params(**fields)
         )
-        search_resp = session.get(search_url)
-        search = search_resp.json()
-        for issue in search["issues"]:
-            yield issue
-        returned = len(search["issues"])
-        total = search["total"]
+        result_resp = session.get(result_url)
+        result = result_resp.json()
+        for obj in result[obj_name]:
+            yield obj
+        returned = len(result[obj_name])
+        total = result["total"]
         if start + returned < total:
             start += returned
         else:
@@ -305,6 +303,22 @@ def migrate_issue(old_issue, idempotent=True):
 
     new_key = new_issue_resp.json()["key"]
 
+    # migrate comments
+    old_comments_url = old_host.with_path("/rest/api/2/issue/{key}/comment".format(key=old_key))
+    new_comments_url = new_host.with_path("/rest/api/2/issue/{key}/comment".format(key=new_key))
+    for old_comment in paginated_api(old_comments_url, "comments", session=old_session):
+        for field in ("author", "updateAuthor"):
+            user_info = old_comment.get(field, {})
+            if user_info:
+                get_or_create_user(
+                    host=new_host,
+                    username=user_info["name"],
+                    name=user_info.get("displayName", ""),
+                    email=user_info.get("emailAddress", ""),
+                    session=new_session,
+                )
+        new_session.post(new_comments_url, body=json.dumps(old_comment))
+
     # link new to old
     new_link_url = new_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=new_key))
     new_link_data = {
@@ -343,7 +357,11 @@ def migrate_issue_by_key(key, idempotent=True):
 
 
 def main():
-    issues = paginated_search(CMDLINE_ARGS.jql, old_host, old_session)
+    search_url = (
+        old_host.with_path("/rest/api/2/search")
+                .add_query_param("jql", CMDLINE_ARGS.jql)
+    )
+    issues = paginated_api(search_url, obj_name="issues", session=old_session)
     for issue in itertools.islice(issues, CMDLINE_ARGS.limit):
         old_key = issue["key"]
         new_key, migrated = migrate_issue(issue)
