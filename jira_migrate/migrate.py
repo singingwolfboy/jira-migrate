@@ -165,11 +165,11 @@ def transform_old_issue_to_new(old_issue):
                 value = []
                 for sprint in [parse_sprint_string(s) for s in value]:
                     if sprint:
-                        value.append(sprint["name"])
+                        value.append(sprint["name"].replace(" ", "_"))
         elif field == "status":
             # can't set status directly, so use a custom field
             field = new_fields_name_to_id["Migrated Status"]
-            value = [value["name"]]
+            value = [value["name"].replace(" ", "_")]
         elif field in name_to_id and value:
             try:
                 value = {"id": name_to_id[field][value["name"]]}
