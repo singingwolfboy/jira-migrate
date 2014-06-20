@@ -272,7 +272,7 @@ def migrate_issue(old_issue, idempotent=True):
     # If the issue has a parent, then we need to migrate the parent first.
     if 'parent' in old_issue['fields']:
         parent_key = old_issue['fields']['parent']['key']
-        new_parent_key = migrate_issue_by_key(parent_key)
+        new_parent_key, _ = migrate_issue_by_key(parent_key)
         old_issue['fields']['parent'] = {'key': new_parent_key}
 
     user_fields = ["creator", "assignee", "reporter"]
@@ -337,8 +337,9 @@ def migrate_issue(old_issue, idempotent=True):
 
 
 def migrate_issue_by_key(key, idempotent=True):
-    print("Magritte sez: THIS ISNT WRITTEN YET")
-    return "LMS-1234"
+    issue_url = old_host.with_path("/rest/api/2/issue/{key}".format(key=key))
+    issue = old_session.get(issue_url)
+    return migrate_issue(issue, idempotent=idempotent)
 
 
 def main():
