@@ -98,8 +98,15 @@ new_field_url = new_host.with_path("/rest/api/2/field")
 new_field_resp = new_session.get(new_field_url)
 new_fields = {f["id"]: f["name"] for f in new_field_resp.json() if f["custom"]}
 
+if 0:
+    print("OLD FIELDS")
+    pprint(old_fields)
+    print("NEW FIELDS")
+    pprint(new_fields)
+
 # old-to-new mapping
 new_fields_name_to_id = {name: id for id, name in new_fields.items()}
+old_fields_name_to_id = {name: id for id, name in old_fields.items()}
 field_map = {old_id: new_fields_name_to_id[name] for old_id, name in old_fields.items()
              if name in new_fields_name_to_id}
 
@@ -112,6 +119,10 @@ for name in ["Migrated Sprint", "Migrated Status"]:
 fields_that_cannot_be_set = set((
     "aggregateprogress", "created", "creator", "progress", "status", "updated",
     "votes", "watches", "workratio", "lastViewed", "resolution", "resolutiondate",
+    # find a way to do these:
+    "environment",
+    # structural things we do another way:
+    "subtasks", "comment",
     # custom fields that cannot be set
     new_fields_name_to_id["Rank"],
     new_fields_name_to_id["Rank (Obsolete)"],
@@ -218,10 +229,24 @@ def migrate_issue(old_issue, idempotent=True):
             ))
 
     # If the issue has a parent, then we need to migrate the parent first.
-    if 'parent' in old_issue['fields']:
+    if old_issue['fields'].get('parent', None):
         parent_key = old_issue['fields']['parent']['key']
+        print("Migrating parent {}".format(parent_key))
         new_parent_key, _ = migrate_issue_by_key(parent_key)
         old_issue['fields']['parent'] = {'key': new_parent_key}
+
+    # If the issue is in an epic, we need to migrate the epic first.
+    epic_field_id = old_fields_name_to_id["Epic Link"]
+    if old_issue['fields'].get(epic_field_id, None):
+        epic_key = old_issue['fields'][epic_field_id]
+        print("Migrating epic {}".format(epic_key))
+        new_epic_key, _ = migrate_issue_by_key(epic_key)
+        old_issue['fields'][epic_field_id] = new_epic_key
+
+    if "subtasks" in old_issue:
+        subtasks = [st["key"] for st in old_issue["subtasks"]]
+    else:
+        subtasks = []
 
     user_fields = ["creator", "assignee", "reporter"]
     for field in user_fields:
@@ -302,13 +327,21 @@ def migrate_issue(old_issue, idempotent=True):
         errors = old_link_resp.json()["errors"]
         pprint(errors)
 
+    # migrate the subtasks
+    for key in subtasks:
+        print("Migrating subtask {}".format(key))
+        migrate_issue_by_key(key)
+
     return new_key, True
 
 
 def migrate_issue_by_key(key, idempotent=True):
     issue_url = old_host.with_path("/rest/api/2/issue/{key}".format(key=key))
-    issue = old_session.get(issue_url)
-    return migrate_issue(issue, idempotent=idempotent)
+    issue_resp = old_session.get(issue_url)
+    if issue_resp.ok:
+        return migrate_issue(issue_resp.json(), idempotent=idempotent)
+    else:
+        raise Exception("Couldn't get issue by key: {}".format(issue_resp.text))
 
 
 def main():
