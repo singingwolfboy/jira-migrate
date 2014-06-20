@@ -97,10 +97,16 @@ old_fields = {f["id"]: f["name"] for f in old_field_resp.json() if f["custom"]}
 new_field_url = new_host.with_path("/rest/api/2/field")
 new_field_resp = new_session.get(new_field_url)
 new_fields = {f["id"]: f["name"] for f in new_field_resp.json() if f["custom"]}
+
 # old-to-new mapping
 new_fields_name_to_id = {name: id for id, name in new_fields.items()}
 field_map = {old_id: new_fields_name_to_id[name] for old_id, name in old_fields.items()
              if name in new_fields_name_to_id}
+
+for name in ["Migrated Sprint", "Migrated Status"]:
+    if name not in new_fields_name_to_id:
+        print("You need to create a {} labels custom field in the new JIRA".format(name))
+        sys.exit(1)
 
 
 fields_that_cannot_be_set = set((
@@ -136,7 +142,6 @@ def get_or_create_user(host, username, name, email, session=None):
 
 
 def transform_old_issue_to_new(old_issue):
-    labels = []
     new_issue_fields = {}
     for field, value in old_issue["fields"].items():
         if field.startswith("custom"):
@@ -145,20 +150,15 @@ def transform_old_issue_to_new(old_issue):
             else:
                 continue
             if field == new_fields_name_to_id["Sprint"] and value:
-                # parse out the sprint names, include as labels
+                field = new_fields_name_to_id["Migrated Sprint"]
+                value = []
                 for sprint in [parse_sprint_string(s) for s in value]:
                     if sprint:
-                        labels.append("Sprint: {name}".format(name=sprint["name"]))
-                labels.append("Labelled Sprint")
-                continue
-        elif field == "labels":
-            labels.extend(value)
-            continue
+                        value.append(sprint["name"])
         elif field == "status":
-            # can't set status directly, so use labels
-            labels.append("Status: {name}".format(name=value["name"]))
-            labels.append("Labelled Status")
-            continue
+            # can't set status directly, so use a custom field
+            field = new_fields_name_to_id["Migrated Status"]
+            value = [value["name"]]
         elif field in name_to_id and value:
             try:
                 value = {"id": name_to_id[field][value["name"]]}
@@ -168,9 +168,6 @@ def transform_old_issue_to_new(old_issue):
                 ))
         if value and field not in fields_that_cannot_be_set:
             new_issue_fields[field] = value
-
-    # labels can't contain spaces, so replace spaces with plus
-    new_issue_fields["labels"] = [l.replace(" ", "+") for l in labels]
 
     new_issue = {"fields": new_issue_fields}
     # it would be nice if we could specify the key for the new issue,
