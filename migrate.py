@@ -53,16 +53,6 @@ for field in ("project", "issuetype", "priority", "resolution", "status"):
     name_to_id[field] = info
 
 
-# list new projects
-new_project_url = new_host.with_path("/rest/api/2/project")
-new_project_resp = new_session.get(new_project_url)
-new_projects = {p["name"]: p["id"] for p in new_project_resp.json()}
-
-# list issue type information
-new_issuetype_url = new_host.with_path("/rest/api/2/issuetype")
-new_issuetype_resp = new_session.get(new_issuetype_url)
-new_issuetypes = {it["name"]: it["id"] for it in new_issuetype_resp.json()}
-
 # grab field information
 old_field_url = old_host.with_path("/rest/api/2/field")
 old_field_resp = old_session.get(old_field_url)
