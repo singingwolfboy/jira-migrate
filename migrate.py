@@ -3,17 +3,29 @@ from __future__ import print_function
 import argparse
 from ConfigParser import SafeConfigParser
 import functools
-import requests
-from urlobject import URLObject
+import itertools
 import json
 from pprint import pprint
 import re
 import sys
 
+import requests
+from urlobject import URLObject
+
 
 def parse_arguments(argv):
-    parser = argparse.ArgumentParser(description="Migrate JIRA tickets")
+    parser = argparse.ArgumentParser(
+        description="Migrate JIRA tickets",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument("--debug", default="")
+    parser.add_argument("--jql",
+        help="The JIRA JQL query to find issues to migrate",
+        default="project = LMS AND created >= -6w",
+    )
+    parser.add_argument("--limit", type=int,
+        help="Don't migrate more than this many issues",
+    )
 
     args = parser.parse_args(argv[1:])
 
@@ -22,8 +34,6 @@ def parse_arguments(argv):
     return args
 
 CMDLINE_ARGS = parse_arguments(sys.argv)
-
-JQL = "project = LMS AND created >= -6w"
 
 SPRINT_RE = re.compile(
     r"""
@@ -241,6 +251,7 @@ def migrate_issue(old_issue, idempotent=True):
     Returns a tuple of (new_key, migrated_boolean)
     """
     old_key = old_issue["key"]
+
     # if this is idempotent, first check if this issue has already been migrated.
     if idempotent:
         old_link_url = old_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
@@ -249,7 +260,7 @@ def migrate_issue(old_issue, idempotent=True):
             for old_link in old_link_resp.json():
                 url = old_link["object"].get("url", "")
                 title = old_link["object"].get("title", "")
-                if "openedx" in url and "Migrated Issue" in title:
+                if str(new_host) in url and "Migrated Issue" in title:
                     # already been migrated!
                     new_key = url.rsplit("/", 1)[-1]
                     return new_key, False
@@ -257,6 +268,12 @@ def migrate_issue(old_issue, idempotent=True):
             print("Warning: could not check for idempotency for {key}".format(
                 key=old_key
             ))
+
+    # If the issue has a parent, then we need to migrate the parent first.
+    if 'parent' in old_issue['fields']:
+        parent_key = old_issue['fields']['parent']['key']
+        new_parent_key = migrate_issue_by_key(parent_key)
+        old_issue['fields']['parent'] = {'key': new_parent_key}
 
     user_fields = ["creator", "assignee", "reporter"]
     for field in user_fields:
@@ -284,6 +301,7 @@ def migrate_issue(old_issue, idempotent=True):
         pprint(new_issue_resp.json())
         print("=" * 20)
         pprint(errors)
+        return None
 
     new_key = new_issue_resp.json()["key"]
 
@@ -318,8 +336,14 @@ def migrate_issue(old_issue, idempotent=True):
     return new_key, True
 
 
+def migrate_issue_by_key(key, idempotent=True):
+    print("Magritte sez: THIS ISNT WRITTEN YET")
+    return "LMS-1234"
+
+
 def main():
-    for issue in paginated_search(JQL, old_host, old_session):
+    issues = paginated_search(CMDLINE_ARGS.jql, old_host, old_session)
+    for issue in itertools.islice(issues, CMDLINE_ARGS.limit):
         old_key = issue["key"]
         new_key, migrated = migrate_issue(issue)
         if migrated:
@@ -329,11 +353,4 @@ def main():
 
 
 if __name__ == "__main__":
-    gen = paginated_search(JQL, old_host, old_session)
-    issue = gen.next()
-    old_key = issue["key"]
-    new_key, migrated = migrate_issue(issue, idempotent=True)
-    if migrated:
-        print("Migrated {old} to {new}".format(old=old_key, new=new_key))
-    else:
-        print("{old} was previously migrated to {new}".format(old=old_key, new=new_key))
+    main()
