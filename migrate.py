@@ -11,8 +11,15 @@ import re
 import sys
 
 def parse_arguments(argv):
-    parser = argparse.ArgumentParser(description="Migrate JIRA tickets")
+    parser = argparse.ArgumentParser(
+        description="Migrate JIRA tickets",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument("--debug", default="")
+    parser.add_argument("--jql",
+        help="The JIRA JQL query to find issues to migrate",
+        default="project = LMS AND created >= -6w",
+    )
 
     args = parser.parse_args(argv[1:])
 
@@ -21,8 +28,6 @@ def parse_arguments(argv):
     return args
 
 CMDLINE_ARGS = parse_arguments(sys.argv)
-
-JQL = "project = LMS AND created >= -6w"
 
 SPRINT_RE = re.compile(
     r"""
@@ -317,15 +322,15 @@ def migrate_issue(old_issue, idempotent=True):
 
 
 def main():
-    for issue in paginated_search(JQL, old_host, old_session):
+    for issue in paginated_search(CMDLINE_ARGS.jql, old_host, old_session):
         old_key = issue["key"]
         new_key = migrate_issue(issue)
         print("Migrated {old} to {new}".format(old=old_key, new=new_key))
 
 
 if __name__ == "__main__":
-    gen = paginated_search(JQL, old_host, old_session)
-    issue = gen.next()
+    gen = paginated_search(CMDLINE_ARGS.jql, old_host, old_session)
+    issue = next(gen)
     old_key = issue["key"]
     new_key = migrate_issue(issue, idempotent=True)
     print("Migrated {old} to {new}".format(old=old_key, new=new_key))
