@@ -26,6 +26,10 @@ def parse_arguments(argv):
     parser.add_argument("--limit", type=int,
         help="Don't migrate more than this many issues",
     )
+    parser.add_argument("--no-idempotent", dest="idempotent",
+        action="store_const", const=False, default=True,
+        help="Create new issues for already-migrated issues",
+    )
 
     args = parser.parse_args(argv[1:])
 
@@ -364,7 +368,7 @@ def main():
     issues = paginated_api(search_url, obj_name="issues", session=old_session)
     for issue in itertools.islice(issues, CMDLINE_ARGS.limit):
         old_key = issue["key"]
-        new_key, migrated = migrate_issue(issue)
+        new_key, migrated = migrate_issue(issue, idempotent=CMDLINE_ARGS.idempotent)
         if migrated:
             print("Migrated {old} to {new}".format(old=old_key, new=new_key))
         else:
