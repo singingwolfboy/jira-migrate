@@ -3,7 +3,6 @@ from __future__ import print_function, unicode_literals
 
 import argparse
 from ConfigParser import SafeConfigParser
-import functools
 import itertools
 import json
 from pprint import pprint
@@ -11,7 +10,8 @@ import re
 import sys
 
 import requests
-from urlobject import URLObject
+
+from .utils import memoize, paginated_api, Session
 
 
 def parse_arguments(argv):
@@ -63,40 +63,21 @@ if not files_read:
     print("Couldn't read config.ini")
     sys.exit(1)
 
-
-class HelpfulSession(object):
-    def __init__(self, nick, host, username, password):
-        self.nick = nick
-        self.host = URLObject(host)
-        self.session = requests.Session()
-        self.session.auth = (username, password)
-        self.session.headers["Content-Type"] = "application/json"
-
-    MSG_FMT = "{:4s} {:5s} {}"
-
-    def get(self, url, *args, **kwargs):
-        if "requests" in CMDLINE_ARGS.debug:
-            print(self.MSG_FMT.format("GET", self.nick, url))
-        return self.session.get(url, *args, **kwargs)
-
-    def post(self, url, *args, **kwargs):
-        if "requests" in CMDLINE_ARGS.debug:
-            print(self.MSG_FMT.format("POST", self.nick, url))
-        return self.session.post(url, *args, **kwargs)
-
-old_session = HelpfulSession(
+old_session = Session(
     nick="old  ",
     host=config.get("origin", "host"),
     username=config.get("origin", "username"),
     password=config.get("origin", "password"),
+    debug="requests" in CMDLINE_ARGS.debug,
 )
 old_host = old_session.host
 
-new_session = HelpfulSession(
+new_session = Session(
     nick="  new",
     host=config.get("destination", "host"),
     username=config.get("destination", "username"),
     password=config.get("destination", "password"),
+    debug="requests" in CMDLINE_ARGS.debug,
 )
 new_host = new_session.host
 
@@ -132,41 +113,6 @@ fields_that_cannot_be_set = set((
     new_fields_name_to_id["[CHART] Time in Status"],
     new_fields_name_to_id["[CHART] Date of First Response"],
 ))
-
-
-# list issues: have to use search API
-def paginated_api(url, obj_name, session=None, start=0, **fields):
-    session = session or requests.Session()
-    more_results = True
-    while more_results:
-        result_url = (
-            url.set_query_param("startAt", str(start))
-               .set_query_params(**fields)
-        )
-        result_resp = session.get(result_url)
-        result = result_resp.json()
-        for obj in result[obj_name]:
-            yield obj
-        returned = len(result[obj_name])
-        total = result["total"]
-        if start + returned < total:
-            start += returned
-        else:
-            more_results = False
-
-
-def memoize(func):
-    cache = {}
-
-    @functools.wraps(func)
-    def memoized(*args, **kwargs):
-        key = (tuple(args), tuple(sorted(kwargs.items())))
-        try:
-            return cache[key]
-        except KeyError:
-            cache[key] = func(*args, **kwargs)
-            return cache[key]
-    return memoized
 
 
 @memoize
@@ -381,7 +327,3 @@ def main():
             print("Migrated {old} to {new}".format(old=old_key, new=new_key))
         else:
             print("{old} was previously migrated to {new}".format(old=old_key, new=new_key))
-
-
-if __name__ == "__main__":
-    main()
