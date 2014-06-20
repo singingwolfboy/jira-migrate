@@ -7,6 +7,7 @@ from urlobject import URLObject
 import json
 from pprint import pprint
 import re
+import sys
 
 JQL = "project = LMS AND created >= -6w"
 
@@ -28,7 +29,10 @@ SPRINT_RE = re.compile(
 )
 
 config = SafeConfigParser()
-config.read("config.ini")
+files_read = config.read("config.ini")
+if not files_read:
+    print("Couldn't read config.ini")
+    sys.exit(1)
 
 old_host = URLObject(config.get("origin", "host"))
 old_session = requests.Session()
