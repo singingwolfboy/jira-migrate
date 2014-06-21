@@ -101,6 +101,13 @@ class Jira(object):
 
     ## JIRA concepts.
 
+    def get_issue(self, key):
+        issue_resp = self.get("/rest/api/2/issue/{key}".format(key=key))
+        if issue_resp.ok:
+            return issue_resp.json()
+        else:
+            return None
+
     @memoize
     def get_or_create_user(self, username, name, email):
         user_url = self.url("/rest/api/2/user").add_query_param("username", username)
@@ -248,9 +255,11 @@ def has_issue_migrated(old_key):
             url = old_link["object"].get("url", "")
             title = old_link["object"].get("title", "")
             if str(new_jira.host) in url and "Migrated Issue" in title:
-                # already been migrated!
+                # Already been migrated once!
                 new_key = url.rsplit("/", 1)[-1]
-                return new_key
+                # Does the new issue still exist?
+                if new_jira.get_issue(new_key):
+                    return new_key
     else:
         print("Warning: could not check for idempotency for {key}".format(
             key=old_key
@@ -352,7 +361,7 @@ def migrate_issue(old_issue, idempotent=True):
     if idempotent:
         old_jira.make_link(
             old_key,
-            url=new_jira.host.url("/browse/{key}".format(key=new_key)),
+            url=new_jira.url("/browse/{key}".format(key=new_key)),
             title="Migrated Issue ({key})".format(key=new_key),
         )
 
@@ -366,9 +375,9 @@ def migrate_issue(old_issue, idempotent=True):
 
 @memoize
 def migrate_issue_by_key(key, idempotent=True):
-    issue_resp = old_jira.get("/rest/api/2/issue/{key}".format(key=key))
-    if issue_resp.ok:
-        return migrate_issue(issue_resp.json(), idempotent=idempotent)
+    issue = old_jira.get_issue(key)
+    if issue:
+        return migrate_issue(issue, idempotent=idempotent)
     else:
         raise Exception("Couldn't get issue by key: {}".format(issue_resp.text))
 
