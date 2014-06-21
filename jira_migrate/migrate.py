@@ -205,6 +205,24 @@ def parse_sprint_string(sprint_str):
     return result
 
 
+@memoize
+def has_issue_migrated(old_key):
+    old_link_url = old_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
+    old_link_resp = old_session.get(old_link_url)
+    if old_link_resp.ok:
+        for old_link in old_link_resp.json():
+            url = old_link["object"].get("url", "")
+            title = old_link["object"].get("title", "")
+            if str(new_host) in url and "Migrated Issue" in title:
+                # already been migrated!
+                new_key = url.rsplit("/", 1)[-1]
+                return new_key
+    else:
+        print("Warning: could not check for idempotency for {key}".format(
+            key=old_key
+        ))
+    return None
+
 def migrate_issue(old_issue, idempotent=True):
     """Migrate an issue, but only once.
 
@@ -213,27 +231,18 @@ def migrate_issue(old_issue, idempotent=True):
     Returns a tuple of (new_key, migrated_boolean)
     """
     old_key = old_issue["key"]
+    print("*** Migrating issue {}".format(old_key))
 
     # if this is idempotent, first check if this issue has already been migrated.
     if idempotent:
-        old_link_url = old_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
-        old_link_resp = old_session.get(old_link_url)
-        if old_link_resp.ok:
-            for old_link in old_link_resp.json():
-                url = old_link["object"].get("url", "")
-                title = old_link["object"].get("title", "")
-                if str(new_host) in url and "Migrated Issue" in title:
-                    # already been migrated!
-                    new_key = url.rsplit("/", 1)[-1]
-                    return new_key, False
-        else:
-            print("Warning: could not check for idempotency for {key}".format(
-                key=old_key
-            ))
+        new_key = has_issue_migrated(old_key)
+        if new_key:
+            return new_key, False
 
     # If the issue has a parent, then we need to migrate the parent first.
     if old_issue['fields'].get('parent', None):
         parent_key = old_issue['fields']['parent']['key']
+        print("Migrating parent {}".format(parent_key))
         new_parent_key, _ = migrate_issue_by_key(parent_key)
         if not new_parent_key:
             raise ValueError("Parent was not migrated, so child cannot be migrated ({})".format(old_key))
@@ -243,6 +252,7 @@ def migrate_issue(old_issue, idempotent=True):
     epic_field_id = old_fields_name_to_id["Epic Link"]
     if old_issue['fields'].get(epic_field_id, None):
         epic_key = old_issue['fields'][epic_field_id]
+        print("Migrating epic {}".format(epic_key))
         new_epic_key, _ = migrate_issue_by_key(epic_key)
         old_issue['fields'][epic_field_id] = new_epic_key
 
@@ -339,6 +349,7 @@ def migrate_issue(old_issue, idempotent=True):
     return new_key, True
 
 
+@memoize
 def migrate_issue_by_key(key, idempotent=True):
     issue_url = old_host.with_path("/rest/api/2/issue/{key}".format(key=key))
     issue_resp = old_session.get(issue_url)
