@@ -317,18 +317,19 @@ def migrate_issue(old_issue, idempotent=True):
         pprint(errors)
 
     # link old to new
-    old_link_url = old_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
-    old_link_data = {
-        "object": {
-            "url": new_host.with_path("/browse/{key}".format(key=new_key)),
-            "title": "Migrated Issue ({key})".format(key=new_key),
+    if idempotent:
+        old_link_url = old_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
+        old_link_data = {
+            "object": {
+                "url": new_host.with_path("/browse/{key}".format(key=new_key)),
+                "title": "Migrated Issue ({key})".format(key=new_key),
+            }
         }
-    }
-    old_link_resp = old_session.post(old_link_url, data=json.dumps(old_link_data))
-    if not new_link_resp.ok:
-        print("Linking old to new failed")
-        errors = old_link_resp.json()["errors"]
-        pprint(errors)
+        old_link_resp = old_session.post(old_link_url, data=json.dumps(old_link_data))
+        if not new_link_resp.ok:
+            print("Linking old to new failed")
+            errors = old_link_resp.json()["errors"]
+            pprint(errors)
 
     # migrate the subtasks
     for key in subtasks:
