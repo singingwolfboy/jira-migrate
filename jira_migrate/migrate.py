@@ -15,6 +15,9 @@ from urlobject import URLObject
 from .utils import memoize, paginated_api, Session
 
 
+class JiraMigrationError(Exception):
+    pass
+
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(
         description="Migrate JIRA tickets",
@@ -196,7 +199,7 @@ fields_that_cannot_be_set = set((
 ))
 
 
-def transform_old_issue_to_new(old_issue):
+def transform_old_issue_to_new(old_issue, warnings):
     new_issue_fields = {}
     for field, value in old_issue["fields"].items():
         if field.startswith("custom"):
@@ -218,8 +221,8 @@ def transform_old_issue_to_new(old_issue):
         elif field in name_to_id and value:
             try:
                 value = {"id": name_to_id[field][value["name"]]}
-            except KeyError:
-                raise KeyError("{name} is not a valid {field}".format(
+            except KeyError as e:
+                warnings.append("{name!r} is not a valid {field!r}".format(
                     name=value["name"], field=field
                 ))
         if value and field not in fields_that_cannot_be_set:
@@ -228,9 +231,19 @@ def transform_old_issue_to_new(old_issue):
     new_issue = {"fields": new_issue_fields}
     # it would be nice if we could specify the key for the new issue,
     # but this doesn't appear to actually do anything. :(
-    new_issue["key"] = old_issue["key"]
+    #new_issue["key"] = old_issue["key"]
 
     return new_issue
+
+
+def scrub_noise(data):
+    """Remove things that don't need to be in POSTed issues, and just clutter output."""
+    for key, value in data.iteritems():
+        if isinstance(value, dict):
+            scrub_noise(value)
+    for key in ["avatarUrls", "self"]:
+        if key in data:
+            del data[key]
 
 
 def parse_sprint_string(sprint_str):
@@ -275,6 +288,7 @@ def migrate_issue(old_issue, idempotent=True):
     """
     old_key = old_issue["key"]
     print("*** Migrating issue {}".format(old_key))
+    warnings = []
 
     # if this is idempotent, first check if this issue has already been migrated.
     if idempotent:
@@ -288,7 +302,7 @@ def migrate_issue(old_issue, idempotent=True):
         print("Migrating parent {}".format(parent_key))
         new_parent_key, _ = migrate_issue_by_key(parent_key)
         if not new_parent_key:
-            raise ValueError("Parent was not migrated, so child cannot be migrated ({})".format(old_key))
+            raise JiraMigrationError("Parent was not migrated, so child cannot be migrated ({})".format(old_key))
         old_issue['fields']['parent'] = {'key': new_parent_key}
 
     # If the issue is in an epic, we need to migrate the epic first.
@@ -297,6 +311,8 @@ def migrate_issue(old_issue, idempotent=True):
         epic_key = old_issue['fields'][epic_field_id]
         print("Migrating epic {}".format(epic_key))
         new_epic_key, _ = migrate_issue_by_key(epic_key)
+        if not new_epic_key:
+            raise JiraMigrationError("Epic was not migrated, so issue cannot be migrated ({})".format(old_key))
         old_issue['fields'][epic_field_id] = new_epic_key
 
     if "subtasks" in old_issue:
@@ -314,7 +330,8 @@ def migrate_issue(old_issue, idempotent=True):
                 email=user_info["emailAddress"],
             )
 
-    new_issue = transform_old_issue_to_new(old_issue)
+    new_issue = transform_old_issue_to_new(old_issue, warnings)
+    scrub_noise(new_issue)
     new_issue_resp = new_jira.post("/rest/api/2/issue", data=json.dumps(new_issue))
     if not new_issue_resp.ok:
         errors = new_issue_resp.json()["errors"]
@@ -365,10 +382,18 @@ def migrate_issue(old_issue, idempotent=True):
             title="Migrated Issue ({key})".format(key=new_key),
         )
 
+    print("... Migrated {} to {}".format(old_key, new_key))
+    if warnings:
+        print("...    with warnings:")
+        for warning in warnings:
+            print("...      {}".format(warning))
+
     # migrate the subtasks
     for key in subtasks:
         print("Migrating subtask {}".format(key))
-        migrate_issue_by_key(key)
+        new_key, _ = migrate_issue_by_key(key)
+        if not new_key:
+            print("Couldn't migrate subtask {}".format(key))
 
     return new_key, True
 
@@ -379,7 +404,7 @@ def migrate_issue_by_key(key, idempotent=True):
     if issue:
         return migrate_issue(issue, idempotent=idempotent)
     else:
-        raise Exception("Couldn't get issue by key: {}".format(issue_resp.text))
+        raise JiraMigrationError("Couldn't get issue by key: {}".format(issue_resp.text))
 
 
 def main():
@@ -387,8 +412,14 @@ def main():
     issues = old_jira.paginated_api(url, "issues")
     for issue in itertools.islice(issues, CMDLINE_ARGS.limit):
         old_key = issue["key"]
-        new_key, migrated = migrate_issue(issue, idempotent=CMDLINE_ARGS.idempotent)
-        if migrated:
-            print("Migrated {old} to {new}".format(old=old_key, new=new_key))
+        try:
+            new_key, migrated = migrate_issue(issue, idempotent=CMDLINE_ARGS.idempotent)
+        except JiraMigrationError as jme:
+            print("Couldn't migrate {old}: {jme}\n".format(old=old_key, jme=jme))
         else:
-            print("{old} was previously migrated to {new}".format(old=old_key, new=new_key))
+            if migrated:
+                print("Migrated {old} to {new}".format(old=old_key, new=new_key))
+            if not new_key:
+                print("{old} couldn't be migrated".format(old=old_key))
+            else:
+                print("{old} was previously migrated to {new}".format(old=old_key, new=new_key))
