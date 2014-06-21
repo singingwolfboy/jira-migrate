@@ -79,6 +79,8 @@ class Jira(object):
     def host(self):
         return self.session.host
 
+    ## Basic requests stuff.
+
     def get(self, url):
         """Returns a requests object."""
         url = self.url(url)
@@ -97,6 +99,45 @@ class Jira(object):
         url = self.url(url)
         return paginated_api(url, object_name, session=self.session)
 
+    ## JIRA concepts.
+
+    @memoize
+    def get_or_create_user(self, username, name, email):
+        user_url = self.url("/rest/api/2/user").add_query_param("username", username)
+        user_resp = self.get(user_url)
+        if user_resp.ok:
+            return user_resp.json()
+        # user doesn't exist!
+        data = {
+            "name": username,
+            "emailAddress": email,
+            "displayName": name,
+        }
+        create_resp = self.post(user_url, data=json.dumps(data))
+        if create_resp.ok:
+            return create_resp.json()
+        else:
+            raise requests.exceptions.RequestException(create_resp.text)
+
+    def custom_field_map(self):
+        field_resp = self.get("/rest/api/2/field")
+        fields = {f["id"]: f["name"] for f in field_resp.json() if f["custom"]}
+        return fields
+
+    def make_link(self, issue_key, url, title):
+        link_data = {
+            "object": {
+                "url": url,
+                "title": title,
+            }
+        }
+        link_url = self.url("/rest/api/2/issue/{key}/remotelink".format(key=issue_key))
+        link_resp = self.post(link_url, data=json.dumps(link_data))
+        if not link_resp.ok:
+            print("Adding link to {} failed".format(link_url))
+            errors = old_link_resp.json()["errors"]
+            pprint(errors)
+
 
 old_jira = Jira("old  ", config, "origin")
 new_jira = Jira("  new", config, "destination")
@@ -109,10 +150,8 @@ for field in ("project", "issuetype", "priority", "resolution", "status"):
     name_to_id[field] = info
 
 # grab field information
-old_field_resp = old_jira.get("/rest/api/2/field")
-old_fields = {f["id"]: f["name"] for f in old_field_resp.json() if f["custom"]}
-new_field_resp = new_jira.get("/rest/api/2/field")
-new_fields = {f["id"]: f["name"] for f in new_field_resp.json() if f["custom"]}
+old_fields = old_jira.custom_field_map()
+new_fields = new_jira.custom_field_map()
 
 if 0:
     print("OLD FIELDS")
@@ -148,25 +187,6 @@ fields_that_cannot_be_set = set((
     new_fields_name_to_id["[CHART] Date of First Response"],
     new_fields_name_to_id["Epic Status"],
 ))
-
-
-@memoize
-def get_or_create_user(jira, username, name, email):
-    user_url = jira.url("/rest/api/2/user").add_query_param("username", username)
-    user_resp = jira.get(user_url)
-    if user_resp.ok:
-        return user_resp.json()
-    # user doesn't exist!
-    data = {
-        "name": username,
-        "emailAddress": email,
-        "displayName": name,
-    }
-    create_resp = jira.post(user_url, data=json.dumps(data))
-    if create_resp.ok:
-        return create_resp.json()
-    else:
-        raise requests.exceptions.RequestException(create_resp.text)
 
 
 def transform_old_issue_to_new(old_issue):
@@ -279,8 +299,7 @@ def migrate_issue(old_issue, idempotent=True):
     for field in user_fields:
         user_info = old_issue["fields"][field]
         if user_info:
-            get_or_create_user(
-                jira=new_jira,
+            new_jira.get_or_create_user(
                 username=user_info["name"],
                 name=user_info["displayName"],
                 email=user_info["emailAddress"],
@@ -310,8 +329,7 @@ def migrate_issue(old_issue, idempotent=True):
         for field in ("author", "updateAuthor"):
             user_info = old_comment.get(field, {})
             if user_info:
-                get_or_create_user(
-                    jira=new_jira,
+                new_jira.get_or_create_user(
                     username=user_info["name"],
                     name=user_info.get("displayName", ""),
                     email=user_info.get("emailAddress", ""),
@@ -324,33 +342,19 @@ def migrate_issue(old_issue, idempotent=True):
         new_jira.post(new_comments_url, data=json.dumps(old_comment))
 
     # link new to old
-    new_link_data = {
-        "object": {
-            "url": old_jira.url("/browse/{key}".format(key=old_key)),
-            "title": "Original Issue ({key})".format(key=old_key),
-        }
-    }
-    new_link_url = "/rest/api/2/issue/{key}/remotelink".format(key=new_key)
-    new_link_resp = new_jira.post(new_link_url, data=json.dumps(new_link_data))
-    if not new_link_resp.ok:
-        print("Linking new to old failed")
-        errors = new_link_resp.json()["errors"]
-        pprint(errors)
+    new_jira.make_link(
+        new_key,
+        url=old_jira.url("/browse/{key}".format(key=old_key)),
+        title="Original Issue ({key})".format(key=old_key),
+    )
 
     # link old to new
     if idempotent:
-        old_link_data = {
-            "object": {
-                "url": new_jira.host.with_path("/browse/{key}".format(key=new_key)),
-                "title": "Migrated Issue ({key})".format(key=new_key),
-            }
-        }
-        old_link_url = "/rest/api/2/issue/{key}/remotelink".format(key=old_key)
-        old_link_resp = old_jira.post(old_link_url, data=json.dumps(old_link_data))
-        if not new_link_resp.ok:
-            print("Linking old to new failed")
-            errors = old_link_resp.json()["errors"]
-            pprint(errors)
+        old_jira.make_link(
+            old_key,
+            url=new_jira.host.url("/browse/{key}".format(key=new_key)),
+            title="Migrated Issue ({key})".format(key=new_key),
+        )
 
     # migrate the subtasks
     for key in subtasks:
