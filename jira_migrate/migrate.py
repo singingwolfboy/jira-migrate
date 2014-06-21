@@ -10,6 +10,7 @@ import re
 import sys
 
 import requests
+from urlobject import URLObject
 
 from .utils import memoize, paginated_api, Session
 
@@ -63,39 +64,54 @@ if not files_read:
     print("Couldn't read config.ini")
     sys.exit(1)
 
-old_session = Session(
-    nick="old  ",
-    host=config.get("origin", "host"),
-    username=config.get("origin", "username"),
-    password=config.get("origin", "password"),
-    debug="requests" in CMDLINE_ARGS.debug,
-)
-old_host = old_session.host
+class Jira(object):
+    """Lightweight object for dealing with JIRA instances."""
+    def __init__(self, nick, config, config_section):
+        self.session = Session(
+            nick=nick,
+            host=config.get(config_section, "host"),
+            username=config.get(config_section, "username"),
+            password=config.get(config_section, "password"),
+            debug="requests" in CMDLINE_ARGS.debug,
+        )
 
-new_session = Session(
-    nick="  new",
-    host=config.get("destination", "host"),
-    username=config.get("destination", "username"),
-    password=config.get("destination", "password"),
-    debug="requests" in CMDLINE_ARGS.debug,
-)
-new_host = new_session.host
+    @property
+    def host(self):
+        return self.session.host
+
+    def get(self, url):
+        """Returns a requests object."""
+        url = self.url(url)
+        return self.session.get(url)
+
+    def post(self, url, data):
+        url = self.url(url)
+        return self.session.post(url, data)
+
+    def url(self, url):
+        if not isinstance(url, URLObject):
+            url = self.host.with_path(url)
+        return url
+
+    def paginated_api(self, url, object_name):
+        url = self.url(url)
+        return paginated_api(url, object_name, session=self.session)
+
+
+old_jira = Jira("old  ", config, "origin")
+new_jira = Jira("  new", config, "destination")
 
 # simple name-to-id mappings for our new instance
 name_to_id = {}
 for field in ("project", "issuetype", "priority", "resolution", "status"):
-    url = new_host.with_path("/rest/api/2/" + field)
-    resp = new_session.get(url)
+    resp = new_jira.get("/rest/api/2/" + field)
     info = {x["name"]: x["id"] for x in resp.json()}
     name_to_id[field] = info
 
-
 # grab field information
-old_field_url = old_host.with_path("/rest/api/2/field")
-old_field_resp = old_session.get(old_field_url)
+old_field_resp = old_jira.get("/rest/api/2/field")
 old_fields = {f["id"]: f["name"] for f in old_field_resp.json() if f["custom"]}
-new_field_url = new_host.with_path("/rest/api/2/field")
-new_field_resp = new_session.get(new_field_url)
+new_field_resp = new_jira.get("/rest/api/2/field")
 new_fields = {f["id"]: f["name"] for f in new_field_resp.json() if f["custom"]}
 
 if 0:
@@ -135,10 +151,9 @@ fields_that_cannot_be_set = set((
 
 
 @memoize
-def get_or_create_user(host, username, name, email, session=None):
-    session = session or requests.Session()
-    user_url = host.with_path("/rest/api/2/user").set_query_param("username", username)
-    user_resp = session.get(user_url)
+def get_or_create_user(jira, username, name, email):
+    user_url = jira.url("/rest/api/2/user").add_query_param("username", username)
+    user_resp = jira.get(user_url)
     if user_resp.ok:
         return user_resp.json()
     # user doesn't exist!
@@ -147,7 +162,7 @@ def get_or_create_user(host, username, name, email, session=None):
         "emailAddress": email,
         "displayName": name,
     }
-    create_resp = session.post(user_url, data=json.dumps(data))
+    create_resp = jira.post(user_url, data=json.dumps(data))
     if create_resp.ok:
         return create_resp.json()
     else:
@@ -207,13 +222,12 @@ def parse_sprint_string(sprint_str):
 
 @memoize
 def has_issue_migrated(old_key):
-    old_link_url = old_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
-    old_link_resp = old_session.get(old_link_url)
+    old_link_resp = old_jira.get("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
     if old_link_resp.ok:
         for old_link in old_link_resp.json():
             url = old_link["object"].get("url", "")
             title = old_link["object"].get("title", "")
-            if str(new_host) in url and "Migrated Issue" in title:
+            if str(new_jira.host) in url and "Migrated Issue" in title:
                 # already been migrated!
                 new_key = url.rsplit("/", 1)[-1]
                 return new_key
@@ -266,16 +280,14 @@ def migrate_issue(old_issue, idempotent=True):
         user_info = old_issue["fields"][field]
         if user_info:
             get_or_create_user(
-                host=new_host,
+                jira=new_jira,
                 username=user_info["name"],
                 name=user_info["displayName"],
                 email=user_info["emailAddress"],
-                session=new_session,
             )
 
     new_issue = transform_old_issue_to_new(old_issue)
-    new_issue_url = new_host.with_path("/rest/api/2/issue")
-    new_issue_resp = new_session.post(new_issue_url, data=json.dumps(new_issue))
+    new_issue_resp = new_jira.post("/rest/api/2/issue", data=json.dumps(new_issue))
     if not new_issue_resp.ok:
         errors = new_issue_resp.json()["errors"]
         for field, message in errors.items():
@@ -292,35 +304,34 @@ def migrate_issue(old_issue, idempotent=True):
     new_key = new_issue_resp.json()["key"]
 
     # migrate comments
-    old_comments_url = old_host.with_path("/rest/api/2/issue/{key}/comment".format(key=old_key))
-    new_comments_url = new_host.with_path("/rest/api/2/issue/{key}/comment".format(key=new_key))
-    for old_comment in paginated_api(old_comments_url, "comments", session=old_session):
+    old_comments_url = "/rest/api/2/issue/{key}/comment".format(key=old_key)
+    new_comments_url = "/rest/api/2/issue/{key}/comment".format(key=new_key)
+    for old_comment in old_jira.paginated_api(old_comments_url, "comments"):
         for field in ("author", "updateAuthor"):
             user_info = old_comment.get(field, {})
             if user_info:
                 get_or_create_user(
-                    host=new_host,
+                    jira=new_jira,
                     username=user_info["name"],
                     name=user_info.get("displayName", ""),
                     email=user_info.get("emailAddress", ""),
-                    session=new_session,
                 )
         # can't set the comment author or creation date, so prefix those in the comment body
         prefix = "[~{author}] commented on {date}:\n\n".format(
             author=old_comment["author"]["name"], date=old_comment["created"]
         )
         old_comment["body"] = prefix + old_comment["body"]
-        new_session.post(new_comments_url, data=json.dumps(old_comment))
+        new_jira.post(new_comments_url, data=json.dumps(old_comment))
 
     # link new to old
-    new_link_url = new_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=new_key))
     new_link_data = {
         "object": {
-            "url": old_host.with_path("/browse/{key}".format(key=old_key)),
+            "url": old_jira.url("/browse/{key}".format(key=old_key)),
             "title": "Original Issue ({key})".format(key=old_key),
         }
     }
-    new_link_resp = new_session.post(new_link_url, data=json.dumps(new_link_data))
+    new_link_url = "/rest/api/2/issue/{key}/remotelink".format(key=new_key)
+    new_link_resp = new_jira.post(new_link_url, data=json.dumps(new_link_data))
     if not new_link_resp.ok:
         print("Linking new to old failed")
         errors = new_link_resp.json()["errors"]
@@ -328,14 +339,14 @@ def migrate_issue(old_issue, idempotent=True):
 
     # link old to new
     if idempotent:
-        old_link_url = old_host.with_path("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
         old_link_data = {
             "object": {
-                "url": new_host.with_path("/browse/{key}".format(key=new_key)),
+                "url": new_jira.host.with_path("/browse/{key}".format(key=new_key)),
                 "title": "Migrated Issue ({key})".format(key=new_key),
             }
         }
-        old_link_resp = old_session.post(old_link_url, data=json.dumps(old_link_data))
+        old_link_url = "/rest/api/2/issue/{key}/remotelink".format(key=old_key)
+        old_link_resp = old_jira.post(old_link_url, data=json.dumps(old_link_data))
         if not new_link_resp.ok:
             print("Linking old to new failed")
             errors = old_link_resp.json()["errors"]
@@ -351,8 +362,7 @@ def migrate_issue(old_issue, idempotent=True):
 
 @memoize
 def migrate_issue_by_key(key, idempotent=True):
-    issue_url = old_host.with_path("/rest/api/2/issue/{key}".format(key=key))
-    issue_resp = old_session.get(issue_url)
+    issue_resp = old_jira.get("/rest/api/2/issue/{key}".format(key=key))
     if issue_resp.ok:
         return migrate_issue(issue_resp.json(), idempotent=idempotent)
     else:
@@ -360,11 +370,8 @@ def migrate_issue_by_key(key, idempotent=True):
 
 
 def main():
-    search_url = (
-        old_host.with_path("/rest/api/2/search")
-                .add_query_param("jql", CMDLINE_ARGS.jql)
-    )
-    issues = paginated_api(search_url, obj_name="issues", session=old_session)
+    url = old_jira.url("/rest/api/2/search").add_query_param("jql", CMDLINE_ARGS.jql)
+    issues = old_jira.paginated_api(url, "issues")
     for issue in itertools.islice(issues, CMDLINE_ARGS.limit):
         old_key = issue["key"]
         new_key, migrated = migrate_issue(issue, idempotent=CMDLINE_ARGS.idempotent)
