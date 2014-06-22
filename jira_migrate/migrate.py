@@ -73,7 +73,11 @@ class Jira(object):
         url = self.url(url)
         return self.session.get(url)
 
-    def post(self, url, data):
+    def post(self, url, data=None, as_json=None):
+        assert not (data and as_json), "Only provide one of data or as_json"
+        assert data or as_json, "Provide either data or as_json"
+        if as_json:
+            data = json.dumps(as_json)
         url = self.url(url)
         return self.session.post(url, data)
 
@@ -107,7 +111,7 @@ class Jira(object):
             "emailAddress": email,
             "displayName": name,
         }
-        create_resp = self.post(user_url, data=json.dumps(data))
+        create_resp = self.post(user_url, as_json=data)
         if create_resp.ok:
             return create_resp.json()
         else:
@@ -126,7 +130,7 @@ class Jira(object):
             }
         }
         link_url = self.url("/rest/api/2/issue/{key}/remotelink".format(key=issue_key))
-        link_resp = self.post(link_url, data=json.dumps(link_data))
+        link_resp = self.post(link_url, as_json=link_data)
         if not link_resp.ok:
             print("Adding link to {} failed".format(link_url))
             errors = old_link_resp.json()["errors"]
@@ -336,7 +340,7 @@ def migrate_issue(old_issue, idempotent=True):
 
     new_issue = transform_old_issue_to_new(old_issue, warnings)
     scrub_noise(new_issue)
-    new_issue_resp = new_jira.post("/rest/api/2/issue", data=json.dumps(new_issue))
+    new_issue_resp = new_jira.post("/rest/api/2/issue", as_json=new_issue)
     if not new_issue_resp.ok:
         errors = new_issue_resp.json()["errors"]
         for field, message in errors.items():
@@ -365,11 +369,11 @@ def migrate_issue(old_issue, idempotent=True):
                 )
         # can't set the comment author or creation date, so prefix those in the comment body
         # [~{author}] will make a mention, but let's not, to cut down the noise.
-        prefix = "\u3010{author} commented on {date}:\u3011\n\n".format(
+        prefix = "\u2770{author} commented on {date}:\u2771\n\n".format(
             author=old_comment["author"]["name"], date=old_comment["created"]
         )
         old_comment["body"] = prefix + old_comment["body"]
-        new_jira.post(new_comments_url, data=json.dumps(old_comment))
+        new_jira.post(new_comments_url, as_json=old_comment)
 
     # link new to old
     new_jira.make_link(
