@@ -5,6 +5,7 @@ import argparse
 from ConfigParser import SafeConfigParser
 import itertools
 import json
+import operator
 from pprint import pprint
 import re
 import time
@@ -347,34 +348,49 @@ class JiraMigrator(object):
 
         new_key = new_issue_resp.json()["key"]
 
-        # migrate comments
-        new_comments_url = "/rest/api/2/issue/{key}/comment".format(key=new_key)
-        for old_comment in old_issue["fields"]["comment"]["comments"]:
+        # A number of things get added as comments.  We collect them up, sort
+        # them by date, and add them all at the end.
+        comments = []
+
+        # Migrate comments.
+        for comment in old_issue["fields"]["comment"]["comments"]:
             for field in ("author", "updateAuthor"):
-                user_info = old_comment.get(field, {})
+                user_info = comment.get(field, {})
                 if user_info:
                     self.new_jira.get_or_create_user(user_info)
 
-            # can't set the comment author or creation date, so prefix those in the comment body
-            # [~{author}] will make a mention, but let's not, to cut down the noise.
-            prefix = "\u25ba{author} commented on {date}:\n\n".format(
-                author=old_comment["author"]["name"], date=old_comment["created"]
-            )
-            old_comment["body"] = prefix + old_comment["body"]
-            self.new_jira.post(new_comments_url, as_json=old_comment)
+            comment["migrated_verb"] = "commented"
+            comments.append(comment)
 
         # Migrate attachments.  Re-attaching them is complicated, let's make
         # comments with links to the old-jira attachment.
         for old_attach in old_issue["fields"]["attachment"]:
             self.new_jira.get_or_create_user(old_attach['author'])
             comment = {
-                "body": "\u25ba{author} attached [{filename}|{url}] on {date}".format(
-                    author=old_attach["author"]["displayName"],
-                    date=old_attach["created"],
+                "author": old_attach["author"],
+                "body": None,
+                "created": old_attach["created"],
+                "migrated_verb": "attached [{filename}|{url}]".format(
                     filename=old_attach["filename"],
                     url=old_attach["content"],
                 ),
             }
+            comments.append(comment)
+
+        # Add all the comments to the new issue, in chronological order.
+        new_comments_url = "/rest/api/2/issue/{key}/comment".format(key=new_key)
+        comments.sort(key=operator.itemgetter("created"))
+        for comment in comments:
+            # can't set the comment author or creation date, so prefix those in the comment body
+            # [~{author}] will make a mention, but let's not, to cut down the noise.
+            body = "\u25ba{author} {verb} on {date}".format(
+                author=comment["author"]["displayName"],
+                date=comment["created"],
+                verb=comment["migrated_verb"],
+            )
+            if comment["body"]:
+                body += ":\n\n" + comment["body"]
+            comment["body"] = body
             self.new_jira.post(new_comments_url, as_json=comment)
 
         # link new to old
