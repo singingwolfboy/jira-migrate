@@ -241,6 +241,9 @@ def scrub_noise(data):
     for key, value in data.iteritems():
         if isinstance(value, dict):
             scrub_noise(value)
+        if isinstance(value, list) and value and isinstance(value[0], dict):
+            for subvalue in value:
+                scrub_noise(subvalue)
     for key in ["avatarUrls", "self"]:
         if key in data:
             del data[key]
