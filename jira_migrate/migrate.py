@@ -323,8 +323,8 @@ def migrate_issue(old_issue, idempotent=True):
             raise JiraMigrationError("Epic was not migrated, so issue cannot be migrated ({})".format(old_key))
         old_issue['fields'][epic_field_id] = new_epic_key
 
-    if "subtasks" in old_issue:
-        subtasks = [st["key"] for st in old_issue["subtasks"]]
+    if "subtasks" in old_issue["fields"]:
+        subtasks = [st["key"] for st in old_issue["fields"]["subtasks"]]
     else:
         subtasks = []
 
