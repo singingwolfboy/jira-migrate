@@ -28,6 +28,7 @@ class Jira(object):
             password=config.get(config_section, "password"),
             debug="requests" in debug,
         )
+        self.debug = debug
 
     @property
     def host(self):
@@ -62,12 +63,22 @@ class Jira(object):
     def get_issue(self, key):
         issue_resp = self.get("/rest/api/2/issue/{key}".format(key=key))
         if issue_resp.ok:
-            return issue_resp.json()
+            data = issue_resp.json()
+            if "get" in self.debug:
+                pprint(data)
+            return data
         else:
             return None
 
+    def get_or_create_user(self, user):
+        return self._get_or_create_user(
+            username=user["name"],
+            name=user["displayName"],
+            email=user["emailAddress"],
+        )
+
     @memoize
-    def get_or_create_user(self, username, name, email):
+    def _get_or_create_user(self, username, name, email):
         user_url = self.url("/rest/api/2/user").add_query_param("username", username)
         user_resp = self.get(user_url)
         if user_resp.ok:
@@ -316,11 +327,7 @@ class JiraMigrator(object):
         for field in user_fields:
             user_info = old_issue["fields"][field]
             if user_info:
-                self.new_jira.get_or_create_user(
-                    username=user_info["name"],
-                    name=user_info["displayName"],
-                    email=user_info["emailAddress"],
-                )
+                self.new_jira.get_or_create_user(user_info)
 
         new_issue = self.transform_old_issue_to_new(old_issue, warnings)
         self.scrub_noise(new_issue)
@@ -346,11 +353,8 @@ class JiraMigrator(object):
             for field in ("author", "updateAuthor"):
                 user_info = old_comment.get(field, {})
                 if user_info:
-                    self.new_jira.get_or_create_user(
-                        username=user_info["name"],
-                        name=user_info.get("displayName", ""),
-                        email=user_info.get("emailAddress", ""),
-                    )
+                    self.new_jira.get_or_create_user(user_info)
+
             # can't set the comment author or creation date, so prefix those in the comment body
             # [~{author}] will make a mention, but let's not, to cut down the noise.
             prefix = "\u25ba{author} commented on {date}:\n\n".format(
@@ -358,6 +362,20 @@ class JiraMigrator(object):
             )
             old_comment["body"] = prefix + old_comment["body"]
             self.new_jira.post(new_comments_url, as_json=old_comment)
+
+        # Migrate attachments.  Re-attaching them is complicated, let's make
+        # comments with links to the old-jira attachment.
+        for old_attach in old_issue["fields"]["attachment"]:
+            self.new_jira.get_or_create_user(old_attach['author'])
+            comment = {
+                "body": "\u25ba{author} attached [{filename}|{url}] on {date}".format(
+                    author=old_attach["author"]["displayName"],
+                    date=old_attach["created"],
+                    filename=old_attach["filename"],
+                    url=old_attach["content"],
+                ),
+            }
+            self.new_jira.post(new_comments_url, as_json=comment)
 
         # link new to old
         self.new_jira.make_link(
