@@ -106,12 +106,29 @@ class Jira(object):
 
 class JiraMigrator(object):
     def __init__(self, config, debug):
-        self.success = []
-        self.failure = []
+        self.success = {}       # map from old key to new key
+        self.failure = set()    # set of failed old keys
+
+        self.issues_to_migrate = []
 
         self.old_jira = Jira("old  ", config, "origin", debug)
         self.new_jira = Jira("  new", config, "destination", debug)
 
+        self.fetch_field_info()
+
+    def succeeded(self, old_key, new_key):
+        self.success[old_key] = new_key
+
+    def failed(self, key):
+        self.failure.add(key)
+
+    def also_migrate_issue(self, key):
+        self.issues_to_migrate.append(key)
+
+    def also_migrate_issues(self, keys):
+        self.issues_to_migrate.extend(keys)
+
+    def fetch_field_info(self):
         # simple name-to-id mappings for our new instance
         self.name_to_id = {}
         for field in ("project", "issuetype", "priority", "resolution", "status"):
@@ -155,12 +172,6 @@ class JiraMigrator(object):
             self.new_fields_name_to_id["[CHART] Date of First Response"],
             self.new_fields_name_to_id["Epic Status"],
         ))
-
-    def succeeded(self, key):
-        self.success.append(key)
-
-    def failed(self, key):
-        self.failure.append(key)
 
     def transform_old_issue_to_new(self, old_issue, warnings):
         new_issue_fields = {}
@@ -299,9 +310,7 @@ class JiraMigrator(object):
             old_issue['fields'][epic_field_id] = new_epic_key
 
         if "subtasks" in old_issue["fields"]:
-            subtasks = [st["key"] for st in old_issue["fields"]["subtasks"]]
-        else:
-            subtasks = []
+            self.also_migrate_issues(st["key"] for st in old_issue["fields"]["subtasks"])
 
         user_fields = ["creator", "assignee", "reporter"]
         for field in user_fields:
@@ -344,7 +353,7 @@ class JiraMigrator(object):
                     )
             # can't set the comment author or creation date, so prefix those in the comment body
             # [~{author}] will make a mention, but let's not, to cut down the noise.
-            prefix = "\u2770{author} commented on {date}:\u2771\n\n".format(
+            prefix = "\u25ba{author} commented on {date}:\n\n".format(
                 author=old_comment["author"]["name"], date=old_comment["created"]
             )
             old_comment["body"] = prefix + old_comment["body"]
@@ -369,13 +378,6 @@ class JiraMigrator(object):
             print("***    warnings:")
             for warning in warnings:
                 print("***      {}".format(warning))
-
-        # migrate the subtasks
-        for key in ():#subtasks:
-            print("Migrating subtask {}".format(key))
-            new_key = self.migrate_issue_by_key(key)
-            if not new_key:
-                print("Couldn't migrate subtask {}".format(key))
 
         return new_key, True
 
@@ -404,7 +406,7 @@ class JiraMigrator(object):
                 print("... {old} was previously migrated to {new}".format(old=old_key, new=new_key))
 
         if new_key:
-            self.succeeded((old_key, new_key))
+            self.succeeded(old_key, new_key)
         else:
             self.failed(old_key)
 
@@ -413,8 +415,15 @@ class JiraMigrator(object):
     def migrate_by_jql(self, jql, limit=None, idempotent=True):
         url = self.old_jira.url("/rest/api/2/search").add_query_param("jql", jql)
         issues = self.old_jira.paginated_api(url, "issues")
-        for issue in itertools.islice(issues, limit):
-            self.migrate_issue_by_key(issue["key"], idempotent=idempotent)
+        self.also_migrate_issues(issue["key"] for issue in itertools.islice(issues, limit))
+        self.migrate_all_issues(idempotent)
+
+    def migrate_all_issues(self, idempotent=True):
+        while self.issues_to_migrate:
+            issues_to_migrate = list(self.issues_to_migrate)
+            self.issues_to_migrate = []
+            for key in issues_to_migrate:
+                self.migrate_issue_by_key(key, idempotent=idempotent)
 
 
 def parse_arguments(argv):
