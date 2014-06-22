@@ -8,6 +8,7 @@ import json
 from pprint import pprint
 import re
 import sys
+import time
 
 import requests
 from urlobject import URLObject
@@ -43,23 +44,6 @@ def parse_arguments(argv):
     return args
 
 CMDLINE_ARGS = parse_arguments(sys.argv)
-
-SPRINT_RE = re.compile(
-    r"""
-    com\.atlassian\.greenhopper\.service\.sprint\.Sprint  # Java classpath
-    @[0-9a-f]+  # memory address
-    \[  # begin attributes
-    rapidViewId=(?P<rapidViewId>[^,]+),
-    state=(?P<state>[^,]+),
-    name=(?P<name>[^,]+),
-    startDate=(?P<startDate>[^,]+),
-    endDate=(?P<endDate>[^,]+),
-    completeDate=(?P<completeDate>[^,]+),
-    id=(?P<id>[^,]+)
-    \]  # end attributes
-    """,
-    re.VERBOSE
-)
 
 config = SafeConfigParser()
 files_read = config.read("config.ini")
@@ -188,7 +172,7 @@ fields_that_cannot_be_set = set((
     # find a way to do these:
     "environment", "issuelinks",
     # structural things we do another way:
-    "subtasks", "comment",
+    "subtasks", "comment", "attachment",
     # custom fields that cannot be set
     new_fields_name_to_id["Rank"],
     new_fields_name_to_id["Rank (Obsolete)"],
@@ -231,7 +215,7 @@ def transform_old_issue_to_new(old_issue, warnings):
     new_issue = {"fields": new_issue_fields}
     # it would be nice if we could specify the key for the new issue,
     # but this doesn't appear to actually do anything. :(
-    #new_issue["key"] = old_issue["key"]
+    new_issue["key"] = old_issue["key"]
 
     return new_issue
 
@@ -248,6 +232,23 @@ def scrub_noise(data):
         if key in data:
             del data[key]
 
+
+SPRINT_RE = re.compile(
+    r"""
+    com\.atlassian\.greenhopper\.service\.sprint\.Sprint  # Java classpath
+    @[0-9a-f]+  # memory address
+    \[  # begin attributes
+    rapidViewId=(?P<rapidViewId>[^,]+),
+    state=(?P<state>[^,]+),
+    name=(?P<name>[^,]+),
+    startDate=(?P<startDate>[^,]+),
+    endDate=(?P<endDate>[^,]+),
+    completeDate=(?P<completeDate>[^,]+),
+    id=(?P<id>[^,]+)
+    \]  # end attributes
+    """,
+    re.VERBOSE
+)
 
 def parse_sprint_string(sprint_str):
     match = SPRINT_RE.match(sprint_str)
@@ -282,6 +283,7 @@ def has_issue_migrated(old_key):
         ))
     return None
 
+
 def migrate_issue(old_issue, idempotent=True):
     """Migrate an issue, but only once.
 
@@ -290,7 +292,6 @@ def migrate_issue(old_issue, idempotent=True):
     Returns a tuple of (new_key, migrated_boolean)
     """
     old_key = old_issue["key"]
-    print("*** Migrating issue {}".format(old_key))
     warnings = []
 
     # if this is idempotent, first check if this issue has already been migrated.
@@ -303,7 +304,7 @@ def migrate_issue(old_issue, idempotent=True):
     if old_issue['fields'].get('parent', None):
         parent_key = old_issue['fields']['parent']['key']
         print("Migrating parent {}".format(parent_key))
-        new_parent_key, _ = migrate_issue_by_key(parent_key)
+        new_parent_key = migrate_issue_by_key(parent_key)
         if not new_parent_key:
             raise JiraMigrationError("Parent was not migrated, so child cannot be migrated ({})".format(old_key))
         old_issue['fields']['parent'] = {'key': new_parent_key}
@@ -313,7 +314,7 @@ def migrate_issue(old_issue, idempotent=True):
     if old_issue['fields'].get(epic_field_id, None):
         epic_key = old_issue['fields'][epic_field_id]
         print("Migrating epic {}".format(epic_key))
-        new_epic_key, _ = migrate_issue_by_key(epic_key)
+        new_epic_key = migrate_issue_by_key(epic_key)
         if not new_epic_key:
             raise JiraMigrationError("Epic was not migrated, so issue cannot be migrated ({})".format(old_key))
         old_issue['fields'][epic_field_id] = new_epic_key
@@ -352,9 +353,8 @@ def migrate_issue(old_issue, idempotent=True):
     new_key = new_issue_resp.json()["key"]
 
     # migrate comments
-    old_comments_url = "/rest/api/2/issue/{key}/comment".format(key=old_key)
     new_comments_url = "/rest/api/2/issue/{key}/comment".format(key=new_key)
-    for old_comment in old_jira.paginated_api(old_comments_url, "comments"):
+    for old_comment in old_issue["fields"]["comment"]["comments"]:
         for field in ("author", "updateAuthor"):
             user_info = old_comment.get(field, {})
             if user_info:
@@ -364,7 +364,8 @@ def migrate_issue(old_issue, idempotent=True):
                     email=user_info.get("emailAddress", ""),
                 )
         # can't set the comment author or creation date, so prefix those in the comment body
-        prefix = "[~{author}] commented on {date}:\n\n".format(
+        # [~{author}] will make a mention, but let's not, to cut down the noise.
+        prefix = "\u3010{author} commented on {date}:\u3011\n\n".format(
             author=old_comment["author"]["name"], date=old_comment["created"]
         )
         old_comment["body"] = prefix + old_comment["body"]
@@ -385,44 +386,78 @@ def migrate_issue(old_issue, idempotent=True):
             title="Migrated Issue ({key})".format(key=new_key),
         )
 
-    print("... Migrated {} to {}".format(old_key, new_key))
     if warnings:
-        print("...    with warnings:")
+        print("***    warnings:")
         for warning in warnings:
-            print("...      {}".format(warning))
+            print("***      {}".format(warning))
 
     # migrate the subtasks
     for key in subtasks:
         print("Migrating subtask {}".format(key))
-        new_key, _ = migrate_issue_by_key(key)
+        new_key = migrate_issue_by_key(key)
         if not new_key:
             print("Couldn't migrate subtask {}".format(key))
 
     return new_key, True
 
 
+class Stats(object):
+    def __init__(self):
+        self.success = []
+        self.failure = []
+
+    def succeeded(self, key):
+        self.success.append(key)
+
+    def failed(self, key):
+        self.failure.append(key)
+
+STATS = Stats()
+
+
 @memoize
-def migrate_issue_by_key(key, idempotent=True):
-    issue = old_jira.get_issue(key)
-    if issue:
-        return migrate_issue(issue, idempotent=idempotent)
+def migrate_issue_by_key(old_key, idempotent=True):
+    """
+    Returns the new key, or None.
+    """
+    print("=== Migrating issue {}".format(old_key))
+    issue = old_jira.get_issue(old_key)
+    if not issue:
+        raise JiraMigrationError("Couldn't get issue by key: {}".format(old_key))
+
+    new_key = None
+    try:
+        new_key, migrated = migrate_issue(issue, idempotent=idempotent)
+    except JiraMigrationError as jme:
+        print("... Couldn't migrate {old}: {jme}\n".format(old=old_key, jme=jme))
     else:
-        raise JiraMigrationError("Couldn't get issue by key: {}".format(issue_resp.text))
+        if migrated:
+            print("... Migrated {old} to {new}".format(old=old_key, new=new_key))
+        elif not new_key:
+            print("... {old} couldn't be migrated".format(old=old_key))
+        else:
+            print("... {old} was previously migrated to {new}".format(old=old_key, new=new_key))
+
+    if new_key:
+        STATS.succeeded((old_key, new_key))
+    else:
+        STATS.failed(old_key)
+
+    return new_key
 
 
 def main():
+    start = time.time()
+
     url = old_jira.url("/rest/api/2/search").add_query_param("jql", CMDLINE_ARGS.jql)
     issues = old_jira.paginated_api(url, "issues")
     for issue in itertools.islice(issues, CMDLINE_ARGS.limit):
-        old_key = issue["key"]
-        try:
-            new_key, migrated = migrate_issue(issue, idempotent=CMDLINE_ARGS.idempotent)
-        except JiraMigrationError as jme:
-            print("Couldn't migrate {old}: {jme}\n".format(old=old_key, jme=jme))
-        else:
-            if migrated:
-                print("Migrated {old} to {new}".format(old=old_key, new=new_key))
-            if not new_key:
-                print("{old} couldn't be migrated".format(old=old_key))
-            else:
-                print("{old} was previously migrated to {new}".format(old=old_key, new=new_key))
+        migrate_issue_by_key(issue["key"], idempotent=CMDLINE_ARGS.idempotent)
+
+    end = time.time()
+    print("Migrated {} issues, {} failures, in {:.1f} minutes".format(
+        len(STATS.success), len(STATS.failure), (end-start)/60.0,
+    ))
+    print("Made {} requests to old JIRA, {} requests to new".format(
+        old_jira.session.count, new_jira.session.count,
+    ))
