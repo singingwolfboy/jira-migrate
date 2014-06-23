@@ -40,6 +40,7 @@ class Session(object):
             print(self.MSG_FMT.format(verb="PUT", nick=self.nick, url=url))
         return self.session.put(url, *args, **kwargs)
 
+
 def paginated_api(url, obj_name, session=None, start=0, **fields):
     session = session or requests.Session()
     more_results = True

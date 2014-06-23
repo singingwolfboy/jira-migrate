@@ -19,6 +19,7 @@ from .utils import memoize, paginated_api, Session
 class JiraMigrationError(Exception):
     pass
 
+
 class Jira(object):
     """Lightweight object for dealing with JIRA instances."""
     def __init__(self, nick, config, config_section, debug):
@@ -161,8 +162,11 @@ class JiraMigrator(object):
         # old-to-new mapping
         self.new_fields_name_to_id = {name: id for id, name in self.new_fields.items()}
         self.old_fields_name_to_id = {name: id for id, name in self.old_fields.items()}
-        self.field_map = {old_id: self.new_fields_name_to_id[name] for old_id, name in self.old_fields.items()
-                    if name in self.new_fields_name_to_id}
+        self.field_map = {
+            old_id: self.new_fields_name_to_id[name]
+            for old_id, name in self.old_fields.items()
+            if name in self.new_fields_name_to_id
+        }
 
         for name in ["Migrated Sprint", "Migrated Status"]:
             if name not in self.new_fields_name_to_id:
@@ -207,7 +211,7 @@ class JiraMigrator(object):
             elif field in self.name_to_id and value:
                 try:
                     value = {"id": self.name_to_id[field][value["name"]]}
-                except KeyError as e:
+                except KeyError:
                     warnings.append("{name!r} is not a valid {field!r}".format(
                         name=value["name"], field=field
                     ))
@@ -221,7 +225,6 @@ class JiraMigrator(object):
 
         return new_issue
 
-
     def scrub_noise(self, data):
         """Remove things that don't need to be in POSTed issues, and just clutter output."""
         for key, value in data.iteritems():
@@ -233,7 +236,6 @@ class JiraMigrator(object):
         for key in ["avatarUrls", "self"]:
             if key in data:
                 del data[key]
-
 
     SPRINT_RE = re.compile(
         r"""
@@ -265,7 +267,6 @@ class JiraMigrator(object):
                 result[prop] = int(result[prop])
         return result
 
-
     @memoize
     def has_issue_migrated(self, old_key):
         old_link_resp = self.old_jira.get("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
@@ -284,7 +285,6 @@ class JiraMigrator(object):
                 key=old_key
             ))
         return None
-
 
     def migrate_issue(self, old_issue, idempotent=True):
         """Migrate an issue, but only once.
@@ -415,7 +415,6 @@ class JiraMigrator(object):
 
         return new_key, True
 
-
     @memoize
     def migrate_issue_by_key(self, old_key, idempotent=True):
         """
@@ -501,7 +500,7 @@ def main(argv):
     end = time.time()
 
     print("Migrated {} issues, {} failures, in {:.1f} minutes".format(
-        len(migrator.success), len(migrator.failure), (end-start)/60.0,
+        len(migrator.success), len(migrator.failure), (end - start)/60.0,
     ))
     print("Made {} requests to old JIRA, {} requests to new".format(
         migrator.old_jira.session.count, migrator.new_jira.session.count,

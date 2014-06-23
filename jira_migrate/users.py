@@ -2,15 +2,11 @@ from __future__ import print_function, unicode_literals
 
 import argparse
 import ConfigParser
-import itertools
-import json
-from pprint import pprint
-import re
 import sys
 
 import requests
 
-from .utils import memoize, paginated_api, Session
+from .utils import Session
 
 
 def parse_arguments(argv):
@@ -60,7 +56,7 @@ def iter_users_in_group(host, group="jira-users", session=None, start=0, **field
             host.with_path("/rest/api/2/group")
                 .set_query_param("groupname", group)
                 .set_query_param("expand", "users[{start}:{end}]".format(
-                    start=start, end=start+50))
+                    start=start, end=start + 50))
                 .set_query_params(**fields)
         )
         result_resp = session.get(result_url)
@@ -86,4 +82,3 @@ def delete_jira_users():
             delete_resp = session.delete(delete_url)
             if not delete_resp.ok:
                 raise ValueError(delete_resp.text)
-
