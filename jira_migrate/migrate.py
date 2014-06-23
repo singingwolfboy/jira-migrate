@@ -20,6 +20,10 @@ class JiraMigrationError(Exception):
     pass
 
 
+class JiraMigrationSkip(Exception):
+    pass
+
+
 class Jira(object):
     """Lightweight object for dealing with JIRA instances."""
     def __init__(self, nick, config, config_section, debug):
@@ -121,6 +125,7 @@ class JiraMigrator(object):
     def __init__(self, config, debug):
         self.success = {}       # map from old key to new key
         self.failure = set()    # set of failed old keys
+        self.skip = set()       # set of skipped old keys
 
         self.issues_to_migrate = []
 
@@ -140,6 +145,9 @@ class JiraMigrator(object):
 
     def failed(self, key):
         self.failure.add(key)
+
+    def skipped(self, key):
+        self.skip.add(key)
 
     def also_migrate_issue(self, key):
         self.issues_to_migrate.append(key)
@@ -304,7 +312,7 @@ class JiraMigrator(object):
 
         # should this be ignored?
         if old_key in self.ignored_issues:
-            raise JiraMigrationError("Ignored by configuration")
+            raise JiraMigrationSkip("Ignored by configuration")
 
         # if this is idempotent, first check if this issue has already been migrated.
         if idempotent:
@@ -318,7 +326,7 @@ class JiraMigrator(object):
             print("Migrating parent {}".format(parent_key))
             new_parent_key = self.migrate_issue_by_key(parent_key)
             if not new_parent_key:
-                raise JiraMigrationError("Parent was not migrated, so child cannot be migrated ({})".format(old_key))
+                raise JiraMigrationSkip("Parent was not migrated, so child cannot be migrated ({})".format(old_key))
             old_issue['fields']['parent'] = {'key': new_parent_key}
 
         # If the issue is in an epic, we need to migrate the epic first.
@@ -328,7 +336,7 @@ class JiraMigrator(object):
             print("Migrating epic {}".format(epic_key))
             new_epic_key = self.migrate_issue_by_key(epic_key)
             if not new_epic_key:
-                raise JiraMigrationError("Epic was not migrated, so issue cannot be migrated ({})".format(old_key))
+                raise JiraMigrationSkip("Epic was not migrated, so issue cannot be migrated ({})".format(old_key))
             old_issue['fields'][epic_field_id] = new_epic_key
 
         if "subtasks" in old_issue["fields"]:
@@ -354,7 +362,7 @@ class JiraMigrator(object):
             pprint(new_issue_resp.json())
             print("=" * 20)
             pprint(errors)
-            return None, False
+            raise JiraMigrationError(errors)
 
         new_key = new_issue_resp.json()["key"]
 
@@ -438,20 +446,19 @@ class JiraMigrator(object):
         new_key = None
         try:
             new_key, migrated = self.migrate_issue(issue, idempotent=idempotent)
+        except JiraMigrationSkip as jms:
+            self.skipped(old_key)
+            print("... Skipped {old}: {jms}\n".format(old=old_key, jms=jms))
         except JiraMigrationError as jme:
+            self.failed(old_key)
             print("... Couldn't migrate {old}: {jme}\n".format(old=old_key, jme=jme))
         else:
+            assert new_key
+            self.succeeded(old_key, new_key)
             if migrated:
                 print("... Migrated {old} to {new}".format(old=old_key, new=new_key))
-            elif not new_key:
-                print("... {old} couldn't be migrated".format(old=old_key))
             else:
                 print("... {old} was previously migrated to {new}".format(old=old_key, new=new_key))
-
-        if new_key:
-            self.succeeded(old_key, new_key)
-        else:
-            self.failed(old_key)
 
         return new_key
 
@@ -509,9 +516,13 @@ def main(argv):
     migrator.migrate_by_jql(args.jql, limit=args.limit, idempotent=args.idempotent)
     end = time.time()
 
-    print("Migrated {} issues, {} failures, in {:.1f} minutes".format(
-        len(migrator.success), len(migrator.failure), (end - start)/60.0,
-    ))
+    print(
+        "Migrated {success} issues, {failure} failures, {skip} skips "
+        "in {duration:.1f} minutes".format(
+            success=len(migrator.success), failure=len(migrator.failure),
+            skip=len(migrator.skip), duration=(end - start)/60.0,
+        )
+    )
     print("Made {} requests to old JIRA, {} requests to new".format(
         migrator.old_jira.session.count, migrator.new_jira.session.count,
     ))
