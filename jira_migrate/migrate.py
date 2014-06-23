@@ -16,6 +16,10 @@ from urlobject import URLObject
 from .utils import memoize, paginated_api, Session
 
 
+class ConfigurationError(Exception):
+    pass
+
+
 class JiraMigrationError(Exception):
     pass
 
@@ -146,6 +150,28 @@ class JiraMigrator(object):
         except NoOptionError:
             ignored_issues = ""
         self.ignored_issues = set(ignored_issues.split(","))
+        try:
+            private_issues = config.get("origin", "private")
+        except NoOptionError:
+            private_issues = ""
+        self.private_issues = set(private_issues.split(","))
+        try:
+            self.ignore_label = config.get("origin", "ignore-label")
+        except NoOptionError:
+            self.ignore_label = None
+        try:
+            self.private_label = config.get("origin", "private-label")
+        except NoOptionError:
+            self.private_label = None
+        try:
+            self.private_id = config.get("destination", "private-id")
+        except NoOptionError:
+            if self.private_label or self.private_issues:
+                raise ConfigurationError(
+                    "If you specify origin.private or origin.private-label, "
+                    "you must specify destination.private-id"
+                )
+            self.private_id = None
 
         self.old_jira = Jira("old  ", config, "origin", debug)
         self.new_jira = Jira("  new", config, "destination", debug)
@@ -215,6 +241,13 @@ class JiraMigrator(object):
             self.new_fields_name_to_id["Epic Status"],
         ))
 
+    def should_issue_be_private(self, issue_info):
+        if issue_info["key"] in self.private_issues:
+            return True
+        if self.private_label and self.private_label in issue_info["fields"]["labels"]:
+            return True
+        return False
+
     def transform_old_issue_to_new(self, old_issue, warnings):
         new_issue_fields = {}
         for field, value in old_issue["fields"].items():
@@ -243,6 +276,10 @@ class JiraMigrator(object):
                     ))
             if value and field not in self.fields_that_cannot_be_set:
                 new_issue_fields[field] = value
+
+        if self.should_issue_be_private(old_issue):
+            security_name = "Private"
+        new_issue_fields["security"] = {"id": self.private_id}
 
         new_issue = {"fields": new_issue_fields}
         # it would be nice if we could specify the key for the new issue,
