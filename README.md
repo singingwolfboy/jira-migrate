@@ -16,3 +16,7 @@ following information:
     host=https://destination-jira.com
     username=admin
     password=password
+
+You may also specify an `ignore` option in the `origin` section, which is a
+comma-separated list of issue keys to ignore. These keys, as well as any of
+their children, will not be migrated by this script.

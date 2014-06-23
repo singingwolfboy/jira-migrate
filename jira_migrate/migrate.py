@@ -2,7 +2,7 @@
 from __future__ import print_function, unicode_literals
 
 import argparse
-from ConfigParser import SafeConfigParser
+from ConfigParser import SafeConfigParser, NoOptionError
 import itertools
 import json
 import operator
@@ -123,6 +123,12 @@ class JiraMigrator(object):
         self.failure = set()    # set of failed old keys
 
         self.issues_to_migrate = []
+
+        try:
+            ignored_issues = config.get("origin", "ignore")
+        except NoOptionError:
+            ignored_issues = ""
+        self.ignored_issues = set(ignored_issues.split(","))
 
         self.old_jira = Jira("old  ", config, "origin", debug)
         self.new_jira = Jira("  new", config, "destination", debug)
@@ -295,6 +301,10 @@ class JiraMigrator(object):
         """
         old_key = old_issue["key"]
         warnings = []
+
+        # should this be ignored?
+        if old_key in self.ignored_issues:
+            raise JiraMigrationError("Ignored by configuration")
 
         # if this is idempotent, first check if this issue has already been migrated.
         if idempotent:
