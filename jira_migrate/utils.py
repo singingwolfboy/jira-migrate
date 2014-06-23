@@ -13,6 +13,7 @@ class Session(object):
         self.session.auth = (username, password)
         self.session.headers["Content-Type"] = "application/json"
         self.debug = debug
+        self.count = 0
 
     MSG_FMT = "{verb:4s} {nick:5s} {url}"
 
@@ -21,6 +22,7 @@ class Session(object):
             url = self.host.with_path(url)
         if self.debug:
             print(self.MSG_FMT.format(verb="GET", nick=self.nick, url=url))
+        self.count += 1
         return self.session.get(url, *args, **kwargs)
 
     def post(self, url, *args, **kwargs):
@@ -28,6 +30,7 @@ class Session(object):
             url = self.host.with_path(url)
         if self.debug:
             print(self.MSG_FMT.format(verb="POST", nick=self.nick, url=url))
+        self.count += 1
         return self.session.post(url, *args, **kwargs)
 
     def put(self, url, *args, **kwargs):
