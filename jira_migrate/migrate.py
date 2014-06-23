@@ -55,6 +55,18 @@ class Jira(object):
         url = self.url(url)
         return self.session.post(url, data)
 
+    def put(self, url, data=None, as_json=None):
+        assert not (data and as_json), "Only provide one of data or as_json"
+        assert data or as_json, "Provide either data or as_json"
+        if as_json:
+            data = json.dumps(as_json)
+        url = self.url(url)
+        return self.session.put(url, data)
+
+    def delete(self, url):
+        url = self.url(url)
+        return self.session.delete(url)
+
     def url(self, url):
         if not isinstance(url, URLObject):
             url = self.host.with_path(url)
@@ -285,6 +297,7 @@ class JiraMigrator(object):
     def has_issue_migrated(self, old_key):
         old_link_resp = self.old_jira.get("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
         if old_link_resp.ok:
+            migrated_issues = []
             for old_link in old_link_resp.json():
                 url = old_link["object"].get("url", "")
                 title = old_link["object"].get("title", "")
@@ -293,7 +306,17 @@ class JiraMigrator(object):
                     new_key = url.rsplit("/", 1)[-1]
                     # Does the new issue still exist?
                     if self.new_jira.get_issue(new_key):
-                        return new_key
+                        migrated_issues.append(new_key)
+                    else:
+                        # if not, remove the link
+                        self.old_jira.delete(
+                            "/rest/api/2/issue/{key}/remotelink/{link_id}".format(
+                                key=old_key, link_id=old_link["id"]
+                            )
+                        )
+            if migrated_issues:
+                # return the first one
+                return migrated_issues[0]
         else:
             print("Warning: could not check for idempotency for {key}".format(
                 key=old_key

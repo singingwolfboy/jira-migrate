@@ -40,6 +40,12 @@ class Session(object):
             print(self.MSG_FMT.format(verb="PUT", nick=self.nick, url=url))
         return self.session.put(url, *args, **kwargs)
 
+    def delete(self, url, *args, **kwargs):
+        if not isinstance(url, URLObject):
+            url = self.host.with_path(url)
+        if self.debug:
+            print(self.MSG_FMT.format(verb="DELETE", nick=self.nick, url=url))
+        return self.session.delete(url, *args, **kwargs)
 
 def paginated_api(url, obj_name, session=None, start=0, **fields):
     session = session or requests.Session()
