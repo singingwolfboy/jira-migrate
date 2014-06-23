@@ -255,7 +255,6 @@ class JiraMigrator(object):
             # structural things we do another way:
             "subtasks", "comment", "attachment",
             # custom fields that cannot be set
-            self.new_fields_name_to_id["Rank"],
             self.new_fields_name_to_id["Rank (Obsolete)"],
             self.new_fields_name_to_id["Testing Status"],
             self.new_fields_name_to_id["[CHART] Time in Status"],
