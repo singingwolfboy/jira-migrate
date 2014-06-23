@@ -487,12 +487,12 @@ def parse_arguments(argv):
 
 def main(argv):
     config = SafeConfigParser()
+    args = parse_arguments(argv)
+
     files_read = config.read("config.ini")
     if not files_read:
         print("Couldn't read config.ini")
         return 1
-
-    args = parse_arguments(argv)
 
     migrator = JiraMigrator(config, debug=args.debug)
 
