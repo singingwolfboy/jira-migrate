@@ -278,8 +278,7 @@ class JiraMigrator(object):
                 new_issue_fields[field] = value
 
         if self.should_issue_be_private(old_issue):
-            security_name = "Private"
-        new_issue_fields["security"] = {"id": self.private_id}
+            new_issue_fields["security"] = {"id": self.private_id}
 
         new_issue = {"fields": new_issue_fields}
         # it would be nice if we could specify the key for the new issue,
