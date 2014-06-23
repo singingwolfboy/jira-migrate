@@ -136,6 +136,28 @@ class Jira(object):
             errors = link_resp.json()["errors"]
             pprint(errors)
 
+    def transition(self, issue_key, to):
+        transitions_url = "/rest/api/2/issue/{key}/transitions".format(key=issue_key)
+        transitions_resp = self.get(transitions_url)
+        if not transitions_resp.ok:
+            msgs = transitions_resp.json()["errorMessages"]
+            raise requests.exceptions.RequestException(msgs)
+
+        for t in transitions_resp.json()["transitions"]:
+            if t["to"]["name"] == to:
+                data = {
+                    "transition": {
+                        "id": t["id"]
+                    }
+                }
+                set_transition_resp = self.post(transitions_url, as_json=data)
+                if not set_transition_resp.ok:
+                    msgs = set_transition_resp.json()["errorMessages"]
+                    raise requests.exceptions.RequestException(msgs)
+                return True
+
+        return False
+
 
 class JiraMigrator(object):
     def __init__(self, config, debug):
@@ -424,6 +446,10 @@ class JiraMigrator(object):
             raise JiraMigrationError(errors)
 
         new_key = new_issue_resp.json()["key"]
+
+        # transition to the correct status
+        status = old_issue["fields"]["status"]["name"]
+        self.new_jira.transition(new_key, status)
 
         # A number of things get added as comments.  We collect them up, sort
         # them by date, and add them all at the end.
