@@ -168,15 +168,15 @@ class JiraMigrator(object):
         self.issues_to_migrate = []
 
         try:
-            ignored_issues = config.get("origin", "ignore")
+            ignored_issues_str = config.get("origin", "ignore")
+            self.ignored_issues = set(ignored_issues_str.split(","))
         except NoOptionError:
-            ignored_issues = ""
-        self.ignored_issues = set(ignored_issues.split(","))
+            self.ignored_issues = set()
         try:
-            private_issues = config.get("origin", "private")
+            private_issues_str = config.get("origin", "private")
+            self.private_issues = set(private_issues_str.split(","))
         except NoOptionError:
-            private_issues = ""
-        self.private_issues = set(private_issues.split(","))
+            self.private_issues = set()
         try:
             self.ignore_label = config.get("origin", "ignore-label")
         except NoOptionError:
