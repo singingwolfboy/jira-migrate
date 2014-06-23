@@ -47,6 +47,7 @@ class Session(object):
             print(self.MSG_FMT.format(verb="DELETE", nick=self.nick, url=url))
         return self.session.delete(url, *args, **kwargs)
 
+
 def paginated_api(url, obj_name, session=None, start=0, **fields):
     session = session or requests.Session()
     more_results = True
@@ -56,6 +57,13 @@ def paginated_api(url, obj_name, session=None, start=0, **fields):
                .set_query_params(**fields)
         )
         result_resp = session.get(result_url)
+        if not result_resp.ok:
+            try:
+                body = result_resp.json()
+                err = body["errorMessages"]
+            except ValueError:
+                err = result_resp.text
+            raise requests.exceptions.RequestException(err)
         result = result_resp.json()
         for obj in result[obj_name]:
             yield obj
