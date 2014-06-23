@@ -1,7 +1,11 @@
 Script to migrate JIRA issues from one instance to another.
 
-To use this script, you will need to create a `config.ini` file with the following
-structure:
+# Configuration
+
+To use this script, you must create a file called `config.ini` in the same
+directory as where you run this script. This file follows [the standard INI
+format](https://en.wikipedia.org/wiki/INI_file), and must contain at least the
+following information:
 
     [origin]
     host=https://origin-jira.com
