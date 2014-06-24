@@ -588,8 +588,10 @@ class JiraMigrator(object):
         self.also_migrate_issues(issue["key"] for issue in itertools.islice(issues, limit))
         self.migrate_all_issues(idempotent)
 
-    def migrate_by_key_list(self, key_list, idempotent=True):
-        self.also_migrate_issues(key_list)
+    def migrate_by_file(self, key_file, limit=None, idempotent=True):
+        stripped_lines = (line.strip() for line in key_file)
+        key_generator = itertools.islice(stripped_lines, limit)
+        self.also_migrate_issues(key_generator)
         self.migrate_all_issues(idempotent)
 
     def migrate_all_issues(self, idempotent=True):
@@ -606,6 +608,10 @@ def parse_arguments(argv):
     parser.add_argument("--jql",
         help="The JIRA JQL query to find issues to migrate",
         default="project = LMS AND created >= -6w",
+    )
+    parser.add_argument("-f", "--file",
+        type=argparse.FileType("r"),
+        help="File that lists issue keys, one per line",
     )
     parser.add_argument("--limit", type=int,
         help="Don't migrate more than this many issues",
@@ -639,9 +645,14 @@ def main(argv):
 
     start = time.time()
     try:
-        migrator.migrate_by_jql(
-            args.jql, limit=args.limit, idempotent=args.idempotent,
-        )
+        if args.file:
+            migrator.migrate_by_file(
+                args.file, limit=args.limit, idempotent=args.idempotent,
+            )
+        else:
+            migrator.migrate_by_jql(
+                args.jql, limit=args.limit, idempotent=args.idempotent,
+            )
     except KeyboardInterrupt:
         print()
     end = time.time()
