@@ -615,7 +615,7 @@ def parse_arguments(argv):
         type=argparse.FileType("r"),
         help="File that lists issue keys, one per line",
     )
-    parser.add_argument("--write-failures",
+    parser.add_argument("--write-failures", dest="failure_file",
         type=argparse.FileType("w"),
         help="Write failure keys to the given file, one per line",
     )
