@@ -522,9 +522,13 @@ class JiraMigrator(object):
         # Add all the comments to the new issue, in chronological order.
         comments.sort(key=operator.itemgetter("created"))
         for comment in comments:
+            if comment["author"]:
+                author = "[~{username}]".format(username=comment["author"]["name"])
+            else:
+                author = "Anonymous"
             # can't set the comment author or creation date, so prefix those in the comment body
-            body = "\u25ba[~{author}] {verb} on {date}".format(
-                author=comment["author"]["name"],
+            body = "\u25ba{author} {verb} on {date}".format(
+                author=author,
                 date=comment["created"],
                 verb=comment["migrated_verb"],
             )
