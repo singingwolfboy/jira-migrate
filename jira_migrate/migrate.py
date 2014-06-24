@@ -613,6 +613,10 @@ def parse_arguments(argv):
         type=argparse.FileType("r"),
         help="File that lists issue keys, one per line",
     )
+    parser.add_argument("--write-failures",
+        type=argparse.FileType("w"),
+        help="Write failure keys to the given file, one per line",
+    )
     parser.add_argument("--limit", type=int,
         help="Don't migrate more than this many issues",
     )
@@ -667,5 +671,10 @@ def main(argv):
     print("Made {} requests to old JIRA, {} requests to new".format(
         migrator.old_jira.session.count, migrator.new_jira.session.count,
     ))
+
+    if args.failure_file and migrator.failure:
+        for failure_key in migrator.failure:
+            args.failure_file.write(failure_key)
+            args.failure_file.write("\n")
 
     return 0
