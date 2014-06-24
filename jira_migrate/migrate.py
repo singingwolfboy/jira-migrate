@@ -484,12 +484,15 @@ class JiraMigrator(object):
         new_comments_url = "/rest/api/2/issue/{key}/comment".format(key=new_key)
 
         # Add a comment with the creation date
-        creation_comment = {
-            "body": "Original issue created on {date}".format(
-                date=old_issue["fields"]["created"]
-            )
-        }
-        self.new_jira.post(new_comments_url, as_json=creation_comment)
+        comments.append({
+            "body": None,
+            "author": old_issue["fields"]["creator"],
+            "migrated_verb": "created original issue [{key}|{url}]".format(
+                key=old_key,
+                url=self.old_jira.url("/browse/{key}".format(key=old_key)),
+            ),
+            "created": old_issue["fields"]["created"],
+        })
 
         # Migrate comments.
         for comment in old_issue["fields"]["comment"]["comments"]:
