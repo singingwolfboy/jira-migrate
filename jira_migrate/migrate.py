@@ -250,7 +250,15 @@ class JiraMigrator(object):
             if name not in self.new_fields_name_to_id:
                 raise JiraMigrationError("You need to create a {} labels custom field in the new JIRA".format(name))
 
-        self.fields_that_cannot_be_set = set((
+        # For these fields, we'll attempt to set the value on the migrated ticket,
+        # but if it fails, then we'll retry without setting the field.
+        self.attempted_fields = set((
+            # we can't set story points on subtasks, because JIRA is annoying
+            self.new_fields_name_to_id["Story Points"],
+        ))
+
+        # Don't even try to set these fields -- it just won't work.
+        self.ignored_fields = set((
             "aggregateprogress", "created", "creator", "progress", "status", "updated",
             "votes", "watches", "workratio", "lastViewed", "resolution", "resolutiondate",
             "worklog", "timespent", "aggregatetimespent",
@@ -301,7 +309,7 @@ class JiraMigrator(object):
                     warnings.append("{name!r} is not a valid {field!r}".format(
                         name=value["name"], field=field
                     ))
-            if value and field not in self.fields_that_cannot_be_set:
+            if value and field not in self.ignored_fields:
                 new_issue_fields[field] = value
 
         if self.should_issue_be_private(old_issue):
@@ -436,7 +444,20 @@ class JiraMigrator(object):
 
         new_issue = self.transform_old_issue_to_new(old_issue, warnings)
         self.scrub_noise(new_issue)
+
         new_issue_resp = self.new_jira.post("/rest/api/2/issue", as_json=new_issue)
+        if not new_issue_resp.ok:
+            # remove anything from the attempted_fields that causes trouble
+            error_fields = new_issue_resp.json()["errors"].keys()
+            unset_error_field = False
+            for error_field in error_fields:
+                if error_field in self.attempted_fields:
+                    del new_issue["fields"][error_field]
+                    unset_error_field = True
+            if unset_error_field:
+                # try again
+                new_issue_resp = self.new_jira.post("/rest/api/2/issue", as_json=new_issue)
+
         if not new_issue_resp.ok:
             errors = new_issue_resp.json()["errors"]
             for field, message in errors.items():
