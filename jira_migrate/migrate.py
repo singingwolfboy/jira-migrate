@@ -459,6 +459,15 @@ class JiraMigrator(object):
         # A number of things get added as comments.  We collect them up, sort
         # them by date, and add them all at the end.
         comments = []
+        new_comments_url = "/rest/api/2/issue/{key}/comment".format(key=new_key)
+
+        # Add a comment with the creation date
+        creation_comment = {
+            "body": "Original issue created on {date}".format(
+                date=old_issue["fields"]["created"]
+            )
+        }
+        self.new_jira.post(new_comments_url, as_json=creation_comment)
 
         # Migrate comments.
         for comment in old_issue["fields"]["comment"]["comments"]:
@@ -486,7 +495,6 @@ class JiraMigrator(object):
             comments.append(comment)
 
         # Add all the comments to the new issue, in chronological order.
-        new_comments_url = "/rest/api/2/issue/{key}/comment".format(key=new_key)
         comments.sort(key=operator.itemgetter("created"))
         for comment in comments:
             # can't set the comment author or creation date, so prefix those in the comment body
