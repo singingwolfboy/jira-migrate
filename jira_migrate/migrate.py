@@ -160,7 +160,9 @@ class Jira(object):
 
 
 class JiraMigrator(object):
-    def __init__(self, config, debug):
+    def __init__(self, config, debug, all_private=False):
+        self.all_private = all_private
+
         self.success = {}       # map from old key to new key
         self.failure = set()    # set of failed old keys
         self.skip = set()       # set of skipped old keys
@@ -193,6 +195,8 @@ class JiraMigrator(object):
                     "If you specify origin.private or origin.private-label, "
                     "you must specify destination.private-id"
                 )
+            if self.all_private:
+                raise ConfigurationError("Must specify destination.private-id")
             self.private_id = None
 
         self.old_jira = Jira("old  ", config, "origin", debug)
@@ -263,6 +267,8 @@ class JiraMigrator(object):
         ))
 
     def should_issue_be_private(self, issue_info):
+        if self.all_private:
+            return True
         if issue_info["key"] in self.private_issues:
             return True
         if self.private_label and self.private_label in issue_info["fields"]["labels"]:
@@ -577,6 +583,10 @@ def parse_arguments(argv):
         action="store_const", const=False, default=True,
         help="Create new issues for already-migrated issues",
     )
+    parser.add_argument("--private",
+        action="store_const", const=True, default=False,
+        help="Create all new issues as private",
+    )
 
     args = parser.parse_args(argv[1:])
 
@@ -594,7 +604,7 @@ def main(argv):
         print("Couldn't read config.ini")
         return 1
 
-    migrator = JiraMigrator(config, debug=args.debug)
+    migrator = JiraMigrator(config, debug=args.debug, all_private=args.private)
 
     start = time.time()
     migrator.migrate_by_jql(args.jql, limit=args.limit, idempotent=args.idempotent)
