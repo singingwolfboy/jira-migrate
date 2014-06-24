@@ -638,7 +638,12 @@ def main(argv):
     migrator = JiraMigrator(config, debug=args.debug, all_private=args.private)
 
     start = time.time()
-    migrator.migrate_by_jql(args.jql, limit=args.limit, idempotent=args.idempotent)
+    try:
+        migrator.migrate_by_jql(
+            args.jql, limit=args.limit, idempotent=args.idempotent,
+        )
+    except KeyboardInterrupt:
+        print()
     end = time.time()
 
     print(
