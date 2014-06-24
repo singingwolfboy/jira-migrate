@@ -167,7 +167,8 @@ class JiraMigrator(object):
         self.failure = set()    # set of failed old keys
         self.skip = set()       # set of skipped old keys
 
-        self.issues_to_migrate = []
+        # a list of iterables that produce issue to migrate
+        self.issue_iterables = []
 
         try:
             ignored_issues_str = config.get("origin", "ignore")
@@ -214,10 +215,10 @@ class JiraMigrator(object):
         self.skip.add(key)
 
     def also_migrate_issue(self, key):
-        self.issues_to_migrate.append(key)
+        self.issue_iterables.append([key])
 
     def also_migrate_issues(self, keys):
-        self.issues_to_migrate.extend(keys)
+        self.issue_iterables.append(keys)
 
     def fetch_field_info(self):
         # simple name-to-id mappings for our new instance
@@ -587,12 +588,13 @@ class JiraMigrator(object):
         self.also_migrate_issues(issue["key"] for issue in itertools.islice(issues, limit))
         self.migrate_all_issues(idempotent)
 
+    def migrate_by_key_list(self, key_list, idempotent=True):
+        self.also_migrate_issues(key_list)
+        self.migrate_all_issues(idempotent)
+
     def migrate_all_issues(self, idempotent=True):
-        while self.issues_to_migrate:
-            issues_to_migrate = list(self.issues_to_migrate)
-            self.issues_to_migrate = []
-            for key in issues_to_migrate:
-                self.migrate_issue_by_key(key, idempotent=idempotent)
+        for key in itertools.chain.from_iterable(self.issue_iterables):
+            self.migrate_issue_by_key(key, idempotent=idempotent)
 
 
 def parse_arguments(argv):
