@@ -491,8 +491,8 @@ class JiraMigrator(object):
         for comment in comments:
             # can't set the comment author or creation date, so prefix those in the comment body
             # [~{author}] will make a mention, but let's not, to cut down the noise.
-            body = "\u25ba{author} {verb} on {date}".format(
-                author=comment["author"]["displayName"],
+            body = "\u25ba[~{author}] {verb} on {date}".format(
+                author=comment["author"]["name"],
                 date=comment["created"],
                 verb=comment["migrated_verb"],
             )
