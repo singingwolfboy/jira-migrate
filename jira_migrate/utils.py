@@ -17,6 +17,10 @@ class Session(object):
 
     MSG_FMT = "{verb:4s} {nick:5s} {url}"
 
+    @property
+    def username(self):
+        return self.session.auth[0]
+
     def get(self, url, *args, **kwargs):
         if not isinstance(url, URLObject):
             url = self.host.with_path(url)

@@ -397,6 +397,28 @@ class JiraMigrator(object):
             comment["body"] = body
             self.new_jira.post(new_comments_url, as_json=comment)
 
+        # Migrate watchers. Must happen after comments, since adding a comment
+        # implicitly makes you watch the issue.
+        old_watchers_resp = self.old_jira.get("/rest/api/2/issue/{key}/watchers".format(key=old_key))
+        new_watchers_url = self.new_jira.url("/rest/api/2/issue/{key}/watchers".format(key=new_key))
+        watchers = old_watchers_resp.json()["watchers"]
+        watcher_usernames = set(w["name"] for w in watchers)
+        # When we create an issue, we are a watcher on it by default.
+        # Remove ourselves from the watcher list if necessary.
+        new_username = self.new_jira.session.username
+        if new_username not in watcher_usernames:
+            del_resp = self.new_jira.delete(
+                new_watchers_url.set_query_param("username", new_username)
+            )
+        else:
+            # if we *should* be in the watcher list, remove this entry from
+            # the watchers list, so we don't send an unnecessary API request.
+            watchers = [w for w in watchers if w["name"] != new_username]
+        # add all the watchers in the list
+        for watcher in old_watchers_resp.json()["watchers"]:
+            self.new_jira.get_or_create_user(watcher)
+            self.new_jira.post(new_watchers_url, as_json=watcher["name"])
+
         # link new to old
         self.new_jira.make_link(
             new_key,
