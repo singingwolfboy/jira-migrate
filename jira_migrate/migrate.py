@@ -232,12 +232,6 @@ class JiraMigrator(object):
         self.old_fields = self.old_jira.custom_field_map()
         self.new_fields = self.new_jira.custom_field_map()
 
-        if 0:
-            print("OLD FIELDS")
-            pprint(self.old_fields)
-            print("NEW FIELDS")
-            pprint(self.new_fields)
-
         # old-to-new mapping
         self.new_fields_name_to_id = {name: id for id, name in self.new_fields.items()}
         self.old_fields_name_to_id = {name: id for id, name in self.old_fields.items()}
