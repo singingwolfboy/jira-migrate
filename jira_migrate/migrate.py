@@ -8,8 +8,9 @@ import operator
 from pprint import pprint
 import re
 import time
+from urlobject import URLObject
 
-from .jira import Jira
+from .jira import Jira, MissingUserInfo
 from .utils import memoize
 
 
@@ -419,7 +420,12 @@ class JiraMigrator(object):
             watchers = [w for w in watchers if w["name"] != new_username]
         # add all the watchers in the list
         for watcher in old_watchers_resp.json()["watchers"]:
-            self.new_jira.get_or_create_user(watcher)
+            try:
+                self.new_jira.get_or_create_user(watcher)
+            except MissingUserInfo:
+                user_url = URLObject(watcher["self"])
+                user_info_resp = self.old_jira.get(user_url)
+                self.new_jira.create_user(user_info_resp.json())
             self.new_jira.post(new_watchers_url, as_json=watcher["name"])
 
         # link new to old

@@ -4,7 +4,11 @@ from pprint import pprint
 import requests
 from urlobject import URLObject
 
-from .utils import memoize, paginated_api, Session
+from .utils import paginated_api, Session
+
+
+class MissingUserInfo(Exception):
+    pass
 
 
 class Jira(object):
@@ -18,6 +22,8 @@ class Jira(object):
             debug="requests" in debug,
         )
         self.debug = debug
+
+        self.user_map = {}  # used to memoize _get_or_create_user
 
     @property
     def host(self):
@@ -76,33 +82,52 @@ class Jira(object):
         issues = self.paginated_api(url, "issues")
         return issues
 
-    def get_or_create_user(self, user):
+    def create_user(self, user):
         kwargs = {
             "username": user["name"],
             "name": user["displayName"],
+            "email": user["emailAddress"],
         }
-        if "emailAddress" in user:
-            kwargs["email"] = user["emailAddress"]
-        return self._get_or_create_user(**kwargs)
+        return self._create_user(**kwargs)
 
-    @memoize
-    def _get_or_create_user(self, username, name, email=None):
-        user_url = self.url("/rest/api/2/user").add_query_param("username", username)
-        user_resp = self.get(user_url)
-        if user_resp.ok:
-            return user_resp.json()
-        # user doesn't exist!
+    def _create_user(self, username, name, email):
+        user_url = self.url("/rest/api/2/user")
         data = {
             "name": username,
             "displayName": name,
+            "emailAddress": email,
         }
-        if email:
-            data["emailAddress"] = email
         create_resp = self.post(user_url, as_json=data)
         if create_resp.ok:
             return create_resp.json()
         else:
             raise requests.exceptions.RequestException(create_resp.text)
+
+    def get_or_create_user(self, user):
+        kwargs = {
+            "username": user["name"],
+        }
+        if "displayName" in user:
+            kwargs["name"] = user["displayName"]
+        if "emailAddress" in user:
+            kwargs["email"] = user["emailAddress"]
+        return self._get_or_create_user(**kwargs)
+
+    def _get_or_create_user(self, username, name=None, email=None):
+        if username in self.user_map:
+            return self.user_map[username]
+
+        user_url = self.url("/rest/api/2/user").add_query_param("username", username)
+        user_resp = self.get(user_url)
+        if user_resp.ok:
+            self.user_map[username] = user_resp.json()
+            return self.user_map[username]
+
+        # user doesn't exist!
+        if not name or not email:
+            raise MissingUserInfo()
+        self.user_map[username] = self._create_user(username, name, email)
+        return self.user_map[username]
 
     def custom_field_map(self):
         field_resp = self.get("/rest/api/2/field")
@@ -144,6 +169,3 @@ class Jira(object):
                 return True
 
         return False
-
-
-
