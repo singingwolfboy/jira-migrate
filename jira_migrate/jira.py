@@ -6,6 +6,7 @@ from urlobject import URLObject
 
 from .utils import memoize, paginated_api, Session
 
+
 class Jira(object):
     """Lightweight object for dealing with JIRA instances."""
     def __init__(self, nick, config, config_section, debug):
@@ -76,14 +77,16 @@ class Jira(object):
         return issues
 
     def get_or_create_user(self, user):
-        return self._get_or_create_user(
-            username=user["name"],
-            name=user["displayName"],
-            email=user["emailAddress"],
-        )
+        kwargs = {
+            "username": user["name"],
+            "name": user["displayName"],
+        }
+        if "emailAddress" in user:
+            kwargs["email"] = user["emailAddress"]
+        return self._get_or_create_user(**kwargs)
 
     @memoize
-    def _get_or_create_user(self, username, name, email):
+    def _get_or_create_user(self, username, name, email=None):
         user_url = self.url("/rest/api/2/user").add_query_param("username", username)
         user_resp = self.get(user_url)
         if user_resp.ok:
@@ -91,9 +94,10 @@ class Jira(object):
         # user doesn't exist!
         data = {
             "name": username,
-            "emailAddress": email,
             "displayName": name,
         }
+        if email:
+            data["emailAddress"] = email
         create_resp = self.post(user_url, as_json=data)
         if create_resp.ok:
             return create_resp.json()
