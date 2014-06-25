@@ -107,7 +107,7 @@ class JiraMigrator(object):
             if name in self.new_fields_name_to_id
         }
 
-        for name in ["Migrated Sprint", "Migrated Status"]:
+        for name in ["Migrated Sprint", "Migrated Status", "Migrated Original Key"]:
             if name not in self.new_fields_name_to_id:
                 raise JiraMigrationError("You need to create a {} labels custom field in the new JIRA".format(name))
 
@@ -175,6 +175,9 @@ class JiraMigrator(object):
 
         if self.should_issue_be_private(old_issue):
             new_issue_fields["security"] = {"id": self.private_id}
+
+        # Store the original key.
+        new_issue_fields[self.new_fields_name_to_id["Migrated Original Key"]] = old_issue["key"]
 
         new_issue = {"fields": new_issue_fields}
         # it would be nice if we could specify the key for the new issue,
