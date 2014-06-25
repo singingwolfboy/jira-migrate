@@ -92,6 +92,11 @@ class Jira(object):
         else:
             return None
 
+    def get_jql_issues(self, jql):
+        url = self.url("/rest/api/2/search").add_query_param("jql", jql)
+        issues = self.paginated_api(url, "issues")
+        return issues
+
     def get_or_create_user(self, user):
         return self._get_or_create_user(
             username=user["name"],
@@ -583,8 +588,7 @@ class JiraMigrator(object):
         return new_key
 
     def migrate_by_jql(self, jql, limit=None, idempotent=True):
-        url = self.old_jira.url("/rest/api/2/search").add_query_param("jql", jql)
-        issues = self.old_jira.paginated_api(url, "issues")
+        issues = self.old_jira.get_jql_issues(jql)
         self.also_migrate_issues(issue["key"] for issue in itertools.islice(issues, limit))
         self.migrate_all_issues(idempotent)
 
