@@ -4,11 +4,15 @@ from pprint import pprint
 import requests
 from urlobject import URLObject
 
-from .utils import paginated_api, Session
+from .utils import memoize, paginated_api, Session
 
 
 class MissingUserInfo(Exception):
     pass
+
+
+# used by `Jira.resource_map()` and friends
+MAPPED_RESOURCES = ("project", "issuetype", "priority", "resolution", "status")
 
 
 class Jira(object):
@@ -129,10 +133,43 @@ class Jira(object):
         self.user_map[username] = self._create_user(username, name, email)
         return self.user_map[username]
 
+    @property
+    @memoize
     def custom_field_map(self):
+        """
+        Returns a mapping of custom field ID to name of the custom field.
+        """
         field_resp = self.get("/rest/api/2/field")
         fields = {f["id"]: f["name"] for f in field_resp.json() if f["custom"]}
         return fields
+
+    @memoize
+    def resource_map(self, resource):
+        """
+        Returns a mapping of ID to name for the given resource.
+        """
+        resp = self.get("/rest/api/2/{resource}".format(resource=resource))
+        return {x["id"]: x["name"] for x in resp.json()}
+
+    @property
+    def project_map(self):
+        return self.resource_map("project")
+
+    @property
+    def issuetype_map(self):
+        return self.resource_map("issuetype")
+
+    @property
+    def priority_map(self):
+        return self.resource_map("priority")
+
+    @property
+    def resolution_map(self):
+        return self.resource_map("resolution")
+
+    @property
+    def status_map(self):
+        return self.resource_map("status")
 
     def make_link(self, issue_key, url, title):
         link_data = {

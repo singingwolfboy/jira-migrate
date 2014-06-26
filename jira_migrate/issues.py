@@ -10,7 +10,7 @@ import re
 import time
 from urlobject import URLObject
 
-from .jira import Jira, MissingUserInfo
+from .jira import Jira, MissingUserInfo, MAPPED_RESOURCES
 from .utils import memoize
 
 
@@ -18,11 +18,11 @@ class ConfigurationError(Exception):
     pass
 
 
-class JiraMigrationError(Exception):
+class JiraIssueError(Exception):
     pass
 
 
-class JiraMigrationSkip(Exception):
+class JiraIssueSkip(Exception):
     pass
 
 
@@ -81,42 +81,42 @@ class JiraMigrator(object):
     def skipped(self, key):
         self.skip.add(key)
 
-    def also_migrate_issue(self, key):
+    def also_run_issue(self, key):
         self.issue_iterables.append([key])
 
-    def also_migrate_issues(self, keys):
+    def also_run_issues(self, keys):
         self.issue_iterables.append(keys)
 
     def fetch_field_info(self):
-        # simple name-to-id mappings for our new instance
-        self.name_to_id = {}
-        for field in ("project", "issuetype", "priority", "resolution", "status"):
-            resp = self.new_jira.get("/rest/api/2/" + field)
-            info = {x["name"]: x["id"] for x in resp.json()}
-            self.name_to_id[field] = info
-
         # grab field information
-        self.old_fields = self.old_jira.custom_field_map()
-        self.new_fields = self.new_jira.custom_field_map()
+        self.old_custom_fields = self.old_jira.custom_field_map
+        self.new_custom_fields = self.new_jira.custom_field_map
 
-        # old-to-new mapping
-        self.new_fields_name_to_id = {name: id for id, name in self.new_fields.items()}
-        self.old_fields_name_to_id = {name: id for id, name in self.old_fields.items()}
-        self.field_map = {
-            old_id: self.new_fields_name_to_id[name]
-            for old_id, name in self.old_fields.items()
-            if name in self.new_fields_name_to_id
+        # invert it: name to ID
+        self.old_custom_fields_inv = {name: id for id, name in self.old_custom_fields.items()}
+        self.new_custom_fields_inv = {name: id for id, name in self.new_custom_fields.items()}
+
+        # map of custom field ID on the old JIRA to custom field ID on the new JIRA
+        # (only contains fields present on old instance)
+        self.custom_fields_old_id_to_new_id = {
+            old_id: self.new_custom_fields_inv[name]
+            for old_id, name in self.old_custom_fields.items()
+            if name in self.new_custom_fields_inv
         }
 
-        for name in ["Migrated Sprint", "Migrated Status", "Migrated Original Key"]:
-            if name not in self.new_fields_name_to_id:
-                raise JiraMigrationError("You need to create a {} labels custom field in the new JIRA".format(name))
+        for name in ("Migrated New Key",):
+            if name not in self.old_custom_fields_inv:
+                raise JiraIssueError("You need to create a {} custom field in the old JIRA".format(name))
+
+        for name in ("Migrated Sprint", "Migrated Status", "Migrated Original Key"):
+            if name not in self.new_custom_fields_inv:
+                raise JiraIssueError("You need to create a {} custom field in the new JIRA".format(name))
 
         # For these fields, we'll attempt to set the value on the migrated ticket,
         # but if it fails, then we'll retry without setting the field.
         self.attempted_fields = set((
             # we can't set story points on subtasks, because JIRA is annoying
-            self.new_fields_name_to_id["Story Points"],
+            self.new_custom_fields_inv["Story Points"],
         ))
 
         # Don't even try to set these fields -- it just won't work.
@@ -129,11 +129,11 @@ class JiraMigrator(object):
             # structural things we do another way:
             "subtasks", "comment", "attachment",
             # custom fields that cannot be set
-            self.new_fields_name_to_id["Rank (Obsolete)"],
-            self.new_fields_name_to_id["Testing Status"],
-            self.new_fields_name_to_id["[CHART] Time in Status"],
-            self.new_fields_name_to_id["[CHART] Date of First Response"],
-            self.new_fields_name_to_id["Epic Status"],
+            self.new_custom_fields_inv["Rank (Obsolete)"],
+            self.new_custom_fields_inv["Testing Status"],
+            self.new_custom_fields_inv["[CHART] Time in Status"],
+            self.new_custom_fields_inv["[CHART] Date of First Response"],
+            self.new_custom_fields_inv["Epic Status"],
         ))
 
     def should_issue_be_private(self, issue_info):
@@ -149,12 +149,12 @@ class JiraMigrator(object):
         new_issue_fields = {}
         for field, value in old_issue["fields"].items():
             if field.startswith("custom"):
-                if field in self.field_map:
-                    field = self.field_map[field]
+                if field in self.custom_fields_old_id_to_new_id:
+                    field = self.custom_fields_old_id_to_new_id[field]
                 else:
                     continue
-                if field == self.new_fields_name_to_id["Sprint"] and value:
-                    field = self.new_fields_name_to_id["Migrated Sprint"]
+                if field == self.new_custom_fields_inv["Sprint"] and value:
+                    field = self.new_custom_fields_inv["Migrated Sprint"]
                     new_value = []
                     for sprint in [self.parse_sprint_string(s) for s in value]:
                         if sprint:
@@ -162,11 +162,13 @@ class JiraMigrator(object):
                     value = new_value
             elif field == "status":
                 # can't set status directly, so use a custom field
-                field = self.new_fields_name_to_id["Migrated Status"]
+                field = self.new_custom_fields_inv["Migrated Status"]
                 value = [value["name"].replace(" ", "_")]
-            elif field in self.name_to_id and value:
+            elif field in MAPPED_RESOURCES and value:
                 try:
-                    value = {"id": self.name_to_id[field][value["name"]]}
+                    field_map = self.new_jira.resource_map(field)
+                    field_map_inv = {name: id for id, name in field_map.items()}
+                    value = {"id": field_map_inv[value["name"]]}
                 except KeyError:
                     warnings.append("{name!r} is not a valid {field!r}".format(
                         name=value["name"], field=field
@@ -178,7 +180,7 @@ class JiraMigrator(object):
             new_issue_fields["security"] = {"id": self.private_id}
 
         # Store the original key.
-        new_issue_fields[self.new_fields_name_to_id["Migrated Original Key"]] = old_issue["key"]
+        new_issue_fields[self.new_custom_fields_inv["Migrated Original Key"]] = old_issue["key"]
 
         new_issue = {"fields": new_issue_fields}
         # it would be nice if we could specify the key for the new issue,
@@ -271,7 +273,7 @@ class JiraMigrator(object):
 
         # should this be ignored?
         if old_key in self.ignored_issues:
-            raise JiraMigrationSkip("Ignored by configuration")
+            raise JiraIssueSkip("Ignored by configuration")
 
         # if this is idempotent, first check if this issue has already been migrated.
         if idempotent:
@@ -285,21 +287,21 @@ class JiraMigrator(object):
             print("Migrating parent {}".format(parent_key))
             new_parent_key = self.migrate_issue_by_key(parent_key)
             if not new_parent_key:
-                raise JiraMigrationSkip("Parent was not migrated, so child cannot be migrated ({})".format(old_key))
+                raise JiraIssueSkip("Parent was not migrated, so child cannot be migrated ({})".format(old_key))
             old_issue['fields']['parent'] = {'key': new_parent_key}
 
         # If the issue is in an epic, we need to migrate the epic first.
-        epic_field_id = self.old_fields_name_to_id["Epic Link"]
+        epic_field_id = self.old_custom_fields_inv["Epic Link"]
         if old_issue['fields'].get(epic_field_id, None):
             epic_key = old_issue['fields'][epic_field_id]
             print("Migrating epic {}".format(epic_key))
             new_epic_key = self.migrate_issue_by_key(epic_key)
             if not new_epic_key:
-                raise JiraMigrationSkip("Epic was not migrated, so issue cannot be migrated ({})".format(old_key))
+                raise JiraIssueSkip("Epic was not migrated, so issue cannot be migrated ({})".format(old_key))
             old_issue['fields'][epic_field_id] = new_epic_key
 
         if "subtasks" in old_issue["fields"]:
-            self.also_migrate_issues(st["key"] for st in old_issue["fields"]["subtasks"])
+            self.also_run_issues(st["key"] for st in old_issue["fields"]["subtasks"])
 
         user_fields = ["creator", "assignee", "reporter"]
         for field in user_fields:
@@ -334,7 +336,7 @@ class JiraMigrator(object):
             pprint(new_issue_resp.json())
             print("=" * 20)
             pprint(errors)
-            raise JiraMigrationError(errors)
+            raise JiraIssueError(errors)
 
         new_key = new_issue_resp.json()["key"]
 
@@ -442,6 +444,19 @@ class JiraMigrator(object):
                 url=self.new_jira.url("/browse/{key}".format(key=new_key)),
                 title="Migrated Issue ({key})".format(key=new_key),
             )
+            new_key_field = self.old_custom_fields_inv["Migrated New Key"]
+            data = {
+                "fields": {
+                    new_key_field: new_key,
+                }
+            }
+            new_key_resp = self.old_jira.put(
+                "/rest/api/2/issue/{key}".format(key=old_key),
+                as_json=data,
+            )
+            if not new_key_resp.ok:
+                raise JiraIssueError(new_key_resp.text)
+
 
         if warnings:
             print("***    warnings:")
@@ -449,6 +464,109 @@ class JiraMigrator(object):
                 print("***      {}".format(warning))
 
         return new_key, True
+
+    def sync_issue(self, old_key=None, new_key=None, forwards=False):
+        """
+        Match the state of the new issue to the state of the old issue
+        """
+        if not old_key and not new_key:
+            raise ValueError("Must specify either new_key or old_key")
+
+        if new_key:
+            new_issue_resp = self.new_jira.get("/rest/api/2/issue/{key}".format(key=new_key))
+            if new_issue_resp.status_code == 404:
+                raise JiraIssueError("Issue {key} on new JIRA no longer exists!".format(key=new_key))
+            if not new_issue_resp.ok:
+                raise JiraIssueError("Error fetching {key} from new JIRA: {}".format(new_issue_resp.text))
+            new_issue = new_issue_resp.json()
+            new_fields = new_issue["fields"]
+
+            if not old_key:
+                old_key_field = self.new_custom_fields_inv["Migrated Original Key"]
+                old_key = new_fields[old_key_field]
+
+        old_issue_resp = self.old_jira.get("/rest/api/2/issue/{key}".format(key=old_key))
+        if old_issue_resp.status_code == 404:
+            raise JiraIssueError("Issue {key} on old JIRA no longer exists!".format(key=old_key))
+        if not old_issue_resp.ok:
+            raise JiraIssueError("Error fetching {key} from old JIRA: {}".format(old_issue_resp.text))
+        old_issue = old_issue_resp.json()
+        old_fields = old_issue["fields"]
+
+        if not new_key:
+            new_key_field = self.old_custom_fields_inv["Migrated New Key"]
+            new_key = old_fields[new_key_field]
+
+            new_issue_resp = self.new_jira.get("/rest/api/2/issue/{key}".format(key=new_key))
+            if new_issue_resp.status_code == 404:
+                raise JiraIssueError("Issue {key} on new JIRA no longer exists!".format(key=new_key))
+            if not new_issue_resp.ok:
+                raise JiraIssueError("Error fetching {key} from new JIRA: {}".format(new_issue_resp.text))
+            new_issue = new_issue_resp.json()
+            new_fields = new_issue["fields"]
+
+        # determine "primary" and "replica": replica always changes to match primary
+        if forwards:
+            primary_key = old_key
+            primary_fields = old_fields
+            primary_jira = self.old_jira
+            replica_key = new_key
+            replica_fields = new_fields
+            replica_jira = self.new_jira
+        else:
+            primary_key = new_key
+            primary_fields = new_fields
+            primary_jira = self.new_jira
+            replica_key = old_key
+            replica_fields = old_fields
+            replica_jira = self.old_jira
+
+        # check status: this will need to handle resolution
+        if primary_fields["status"]["name"] != replica_fields["status"]["name"]:
+            replica_jira.transition(replica_key, primary_fields["status"]["name"])
+
+        update_fields = {}
+
+        # check labels
+        if primary_fields["labels"] != replica_fields["labels"]:
+            update_fields["labels"] = primary_fields["labels"]
+
+        # check priority
+        if primary_fields["priority"]["name"] != replica_fields["priority"]["name"]:
+            p_priority_name = primary_fields["priority"]["name"]
+            r_priority_map = replica_jira.resource_map("priority")
+            r_priority_map_inv = {name: id for id, name in r_priority_map.items()}
+            update_fields["priority"] = {"id": r_priority_map_inv[p_priority_name]}
+
+        # check resolution: the "resolution" field can be a dict, or None
+        if primary_fields["resolution"] is None:
+            if replica_fields["resolution"] is not None:
+                update_fields["resolution"] = None
+        else:
+            p_resolution_name = primary_fields["resolution"]["name"]
+            if replica_fields["resolution"] is None or replica_fields["resolution"]["name"] != p_resolution_name:
+                r_resolution_map = replica_jira.resource_map("resolution")
+                r_resolution_map_inv = {name: id for id, name in r_resolution_map.items()}
+                update_fields["resolution"] = {"id": r_resolution_map_inv[p_resolution_name]}
+
+        # check assignee: the "assignee" field can be a dict, or None
+        if primary_fields["assignee"] is None:
+            if replica_fields["assignee"] is not None:
+                update_fields["assignee"] = None
+        else:
+            p_assignee_name = primary_fields["assignee"]["name"]
+            if replica_fields["assignee"] is None or replica_fields["assignee"]["name"] != p_assignee_name:
+                replica_jira.get_or_create_user(primary_fields["assignee"])
+                update_fields["assignee"] = {"name": p_assignee_name}
+
+        if update_fields:
+            data = {"fields": update_fields}
+            update_resp = replica_jira.put(
+                "/rest/api/2/issue/{key}".format(key=replica_key), as_json=data)
+            if not update_resp.ok:
+                raise JiraIssueError(update_resp.text)
+
+        return new_key if forwards else old_key
 
     @memoize
     def migrate_issue_by_key(self, old_key, idempotent=True):
@@ -458,17 +576,17 @@ class JiraMigrator(object):
         print("=== Migrating issue {}".format(old_key))
         issue = self.old_jira.get_issue(old_key)
         if not issue:
-            raise JiraMigrationError("Couldn't get issue by key: {}".format(old_key))
+            raise JiraIssueError("Couldn't get issue by key: {}".format(old_key))
 
         new_key = None
         try:
             new_key, migrated = self.migrate_issue(issue, idempotent=idempotent)
-        except JiraMigrationSkip as jms:
+        except JiraIssueSkip as jis:
             self.skipped(old_key)
-            print("... Skipped {old}: {jms}\n".format(old=old_key, jms=jms))
-        except JiraMigrationError as jme:
+            print("... Skipped {old}: {jis}\n".format(old=old_key, jis=jis))
+        except JiraIssueError as jie:
             self.failed(old_key)
-            print("... Couldn't migrate {old}: {jme}\n".format(old=old_key, jme=jme))
+            print("... Couldn't migrate {old}: {jie}\n".format(old=old_key, jie=jie))
         else:
             assert new_key
             self.succeeded(old_key, new_key)
@@ -481,18 +599,52 @@ class JiraMigrator(object):
 
     def migrate_by_jql(self, jql, limit=None, idempotent=True):
         issues = self.old_jira.get_jql_issues(jql)
-        self.also_migrate_issues(issue["key"] for issue in itertools.islice(issues, limit))
+        self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
         self.migrate_all_issues(idempotent)
+
+    def sync_by_jql(self, jql, limit=None, forwards=False):
+        if forwards:
+            jira = self.old_jira
+        else:
+            jira = self.new_jira
+        issues = jira.get_jql_issues(jql)
+        self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
+        self.sync_all_issues(forwards=forwards)
 
     def migrate_by_file(self, key_file, limit=None, idempotent=True):
         stripped_lines = (line.strip() for line in key_file)
-        key_generator = itertools.islice(stripped_lines, limit)
-        self.also_migrate_issues(key_generator)
+        nonblank_lines = (line for line in stripped_lines if line)
+        key_generator = itertools.islice(nonblank_lines, limit)
+        self.also_run_issues(key_generator)
         self.migrate_all_issues(idempotent)
+
+    def sync_by_file(self, key_file, limit=None, forwards=False):
+        stripped_lines = (line.strip() for line in key_file)
+        nonblank_lines = (line for line in stripped_lines if line)
+        key_generator = itertools.islice(nonblank_lines, limit)
+        self.also_run_issues(key_generator)
+        self.sync_all_issues(forwards=forwards)
 
     def migrate_all_issues(self, idempotent=True):
         for key in itertools.chain.from_iterable(self.issue_iterables):
             self.migrate_issue_by_key(key, idempotent=idempotent)
+
+    def sync_all_issues(self, forwards=False):
+        if forwards:
+            new_or_old = "old_key"
+        else:
+            new_or_old = "new_key"
+
+        for key in itertools.chain.from_iterable(self.issue_iterables):
+            try:
+                alt_key = self.sync_issue(**{new_or_old: key, "forwards": forwards})
+            except JiraIssueSkip:
+                self.skipped(key)
+            except JiraIssueError as jie:
+                self.failed(key)
+                print("... Couldn't migrate {key}: {jie}\n".format(key=key, jie=jie))
+            else:
+                self.succeeded(key, alt_key)
 
 
 def parse_arguments(argv):
@@ -503,11 +655,18 @@ def parse_arguments(argv):
     parser.add_argument("--debug", default="")
     parser.add_argument("--jql",
         help="The JIRA JQL query to find issues to migrate",
-        default="project = LMS AND created >= -6w",
     )
     parser.add_argument("-f", "--file",
         type=argparse.FileType("r"),
         help="File that lists issue keys, one per line",
+    )
+    parser.add_argument("--sync-forwards",
+        action="store_true",
+        help="Change new issues to match old issues",
+    )
+    parser.add_argument("--sync-backwards", "--sync",
+        action="store_true", dest="sync_backwards",
+        help="Change old issues to match new issues",
     )
     parser.add_argument("--write-failures", dest="failure_file",
         type=argparse.FileType("w"),
@@ -529,18 +688,20 @@ def parse_arguments(argv):
 
     args.debug = args.debug.split(",")
 
+    if args.sync_forwards and args.sync_backwards:
+        raise ConfigurationError("Cannot sync both ways")
+
+    if not args.file and not args.jql:
+        raise ConfigurationError("Must specify either JQL statement or keys file")
+    if args.file and args.jql:
+        raise ConfigurationError("Cannot specify both JQL statement and keys file")
+
+    args.sync = bool(args.sync_forwards or args.sync_backwards)
+
     return args
 
 
-def main(argv):
-    config = SafeConfigParser()
-    args = parse_arguments(argv)
-
-    files_read = config.read("config.ini")
-    if not files_read:
-        print("Couldn't read config.ini")
-        return 1
-
+def migrate(config, args):
     migrator = JiraMigrator(config, debug=args.debug, all_private=args.private)
 
     start = time.time()
@@ -574,3 +735,54 @@ def main(argv):
             args.failure_file.write("\n")
 
     return 0
+
+
+def sync(config, args):
+    migrator = JiraMigrator(config, debug=args.debug)
+
+    start = time.time()
+    try:
+        if args.file:
+            migrator.sync_by_file(
+                args.file, limit=args.limit, forwards=args.sync_forwards,
+            )
+        else:
+            migrator.sync_by_jql(
+                args.jql, limit=args.limit, forwards=args.sync_forwards,
+            )
+    except KeyboardInterrupt:
+        print()
+    end = time.time()
+
+    print(
+        "Synced {success} issues, {failure} failures, {skip} skips "
+        "in {duration:.1f} minutes".format(
+            success=len(migrator.success), failure=len(migrator.failure),
+            skip=len(migrator.skip), duration=(end - start)/60.0,
+        )
+    )
+    print("Made {} requests to old JIRA, {} requests to new".format(
+        migrator.old_jira.session.count, migrator.new_jira.session.count,
+    ))
+
+    if args.failure_file and migrator.failure:
+        for failure_key in migrator.failure:
+            args.failure_file.write(failure_key)
+            args.failure_file.write("\n")
+
+    return 0
+
+
+def main(argv):
+    config = SafeConfigParser()
+    args = parse_arguments(argv)
+
+    files_read = config.read("config.ini")
+    if not files_read:
+        print("Couldn't read config.ini")
+        return 1
+
+    if args.sync:
+        return sync(config, args)
+    else:
+        return migrate(config, args)
