@@ -638,13 +638,18 @@ class JiraMigrator(object):
         for key in itertools.chain.from_iterable(self.issue_iterables):
             try:
                 alt_key = self.sync_issue(**{new_or_old: key, "forwards": forwards})
-            except JiraIssueSkip:
+            except JiraIssueSkip as jis:
                 self.skipped(key)
+                print("... Skipped {old}: {jis}\n".format(old=old_key, jis=jis))
             except JiraIssueError as jie:
                 self.failed(key)
                 print("... Couldn't migrate {key}: {jie}\n".format(key=key, jie=jie))
             else:
                 self.succeeded(key, alt_key)
+                print("... Synced {key} {direction} to {alt_key}".format(
+                    key=key, alt_key=alt_key,
+                    direction="forwards" if forwards else "backwards"
+                ))
 
 
 def parse_arguments(argv):
