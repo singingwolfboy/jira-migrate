@@ -328,8 +328,8 @@ class JiraMigrator(object):
         if not new_issue_resp.ok:
             errors = new_issue_resp.json()["errors"]
             for field, _ in errors.items():
-                if field in self.new_fields:
-                    errors[field] += " ({})".format(self.new_fields[field])
+                if field in self.new_custom_fields_inv:
+                    errors[field] += " ({})".format(self.new_custom_fields_inv[field])
             print("=" * 20, " tried to make:")
             pprint(new_issue)
             print("=" * 20, " got this back:")
