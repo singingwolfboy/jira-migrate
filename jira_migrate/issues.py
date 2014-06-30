@@ -124,7 +124,7 @@ class JiraMigrator(object):
         self.ignored_fields = set((
             "aggregateprogress", "created", "creator", "progress", "status", "updated",
             "votes", "watches", "workratio", "lastViewed", "resolution", "resolutiondate",
-            "worklog", "timespent", "aggregatetimespent",
+            "worklog", "timespent", "aggregatetimespent", "fixVersions",
             # find a way to do these:
             "environment", "issuelinks",
             # structural things we do another way:
