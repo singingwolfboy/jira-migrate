@@ -119,6 +119,7 @@ class JiraMigrator(object):
         # but if it fails, then we'll retry without setting the field.
         self.attempted_fields = set((
             self.new_custom_fields_inv["Business Value"],
+            self.new_custom_fields_inv["Flagged"],
             # we can't set story points on subtasks, because JIRA is annoying
             self.new_custom_fields_inv["Story Points"],
         ))
