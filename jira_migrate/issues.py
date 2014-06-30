@@ -8,7 +8,10 @@ import operator
 from pprint import pprint
 import re
 import time
+
 from urlobject import URLObject
+import requests
+from requests.compat import json
 
 from .jira import Jira, MissingUserInfo, MAPPED_RESOURCES
 from .utils import memoize
@@ -237,7 +240,13 @@ class JiraMigrator(object):
         old_link_resp = self.old_jira.get("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
         if old_link_resp.ok:
             migrated_issues = []
-            for old_link in old_link_resp.json():
+            try:
+                old_links = old_link_resp.json()
+            except json.JSONDecodeError:
+                msg = "Invalid JSON: {}".format(old_link_resp.text)
+                raise requests.exceptions.RequestException(msg)
+
+            for old_link in old_links:
                 url = old_link["object"].get("url", "")
                 title = old_link["object"].get("title", "")
                 if str(self.new_jira.host) in url and "Migrated Issue" in title:
@@ -314,9 +323,15 @@ class JiraMigrator(object):
         self.scrub_noise(new_issue)
 
         new_issue_resp = self.new_jira.post("/rest/api/2/issue", as_json=new_issue)
+        try:
+            new_issue_body = new_issue_resp.json()
+        except json.JSONDecodeError:
+            msg = "Invalid JSON: {}".format(new_issue_resp.text)
+            raise requests.exceptions.RequestException(msg)
+
         if not new_issue_resp.ok:
             # remove anything from the attempted_fields that causes trouble
-            error_fields = new_issue_resp.json()["errors"].keys()
+            error_fields = new_issue_body["errors"].keys()
             unset_error_field = False
             for error_field in error_fields:
                 if error_field in self.attempted_fields:
@@ -325,21 +340,26 @@ class JiraMigrator(object):
             if unset_error_field:
                 # try again
                 new_issue_resp = self.new_jira.post("/rest/api/2/issue", as_json=new_issue)
+                try:
+                    new_issue_body = new_issue_resp.json()
+                except json.JSONDecodeError:
+                    msg = "Invalid JSON: {}".format(new_issue_resp.text)
+                    raise requests.exceptions.RequestException(msg)
 
         if not new_issue_resp.ok:
-            errors = new_issue_resp.json()["errors"]
+            errors = new_issue_body["errors"]
             for field, _ in errors.items():
                 if field in self.new_custom_fields_inv:
                     errors[field] += " ({})".format(self.new_custom_fields_inv[field])
             print("=" * 20, " tried to make:")
             pprint(new_issue)
             print("=" * 20, " got this back:")
-            pprint(new_issue_resp.json())
+            pprint(new_issue_body)
             print("=" * 20)
             pprint(errors)
             raise JiraIssueError(errors)
 
-        new_key = new_issue_resp.json()["key"]
+        new_key = new_issue_body["key"]
 
         # transition to the correct status
         status = old_issue["fields"]["status"]["name"]
@@ -408,21 +428,21 @@ class JiraMigrator(object):
         # implicitly makes you watch the issue.
         old_watchers_resp = self.old_jira.get("/rest/api/2/issue/{key}/watchers".format(key=old_key))
         new_watchers_url = self.new_jira.url("/rest/api/2/issue/{key}/watchers".format(key=new_key))
-        watchers = old_watchers_resp.json()["watchers"]
-        watcher_usernames = set(w["name"] for w in watchers)
+        try:
+            old_watchers_body = old_watchers_resp.json()
+        except json.JSONDecodeError:
+            msg = "Invalid JSON: {}".format(old_watchers_resp.text)
+            raise requests.exceptions.RequestException(msg)
+        watcher_usernames = set(w["name"] for w in old_watchers_body["watchers"])
         # When we create an issue, we are a watcher on it by default.
         # Remove ourselves from the watcher list if necessary.
         new_username = self.new_jira.session.username
         if new_username not in watcher_usernames:
-            del_resp = self.new_jira.delete(
+            self.new_jira.delete(
                 new_watchers_url.set_query_param("username", new_username)
             )
-        else:
-            # if we *should* be in the watcher list, remove this entry from
-            # the watchers list, so we don't send an unnecessary API request.
-            watchers = [w for w in watchers if w["name"] != new_username]
         # add all the watchers in the list
-        for watcher in old_watchers_resp.json()["watchers"]:
+        for watcher in old_watchers_body["watchers"]:
             try:
                 self.new_jira.get_or_create_user(watcher)
             except MissingUserInfo:
@@ -479,7 +499,11 @@ class JiraMigrator(object):
                 raise JiraIssueError("Issue {key} on new JIRA no longer exists!".format(key=new_key))
             if not new_issue_resp.ok:
                 raise JiraIssueError("Error fetching {key} from new JIRA: {}".format(new_issue_resp.text))
-            new_issue = new_issue_resp.json()
+            try:
+                new_issue = new_issue_resp.json()
+            except json.JSONDecodeError:
+                msg = "Invalid JSON: {}".format(new_issue_resp.text)
+                raise requests.exceptions.RequestException(msg)
             new_fields = new_issue["fields"]
 
             if not old_key:
@@ -491,7 +515,11 @@ class JiraMigrator(object):
             raise JiraIssueError("Issue {key} on old JIRA no longer exists!".format(key=old_key))
         if not old_issue_resp.ok:
             raise JiraIssueError("Error fetching {key} from old JIRA: {}".format(old_issue_resp.text))
-        old_issue = old_issue_resp.json()
+        try:
+            old_issue = old_issue_resp.json()
+        except json.JSONDecodeError:
+            msg = "Invalid JSON: {}".format(old_issue_resp.text)
+            raise requests.exceptions.RequestException(msg)
         old_fields = old_issue["fields"]
 
         if not new_key:
@@ -503,7 +531,11 @@ class JiraMigrator(object):
                 raise JiraIssueError("Issue {key} on new JIRA no longer exists!".format(key=new_key))
             if not new_issue_resp.ok:
                 raise JiraIssueError("Error fetching {key} from new JIRA: {}".format(new_issue_resp.text))
-            new_issue = new_issue_resp.json()
+            try:
+                new_issue = new_issue_resp.json()
+            except json.JSONDecodeError:
+                msg = "Invalid JSON: {}".format(new_issue_resp.text)
+                raise requests.exceptions.RequestException(msg)
             new_fields = new_issue["fields"]
 
         # determine "primary" and "replica": replica always changes to match primary
