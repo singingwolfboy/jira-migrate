@@ -555,9 +555,12 @@ class JiraMigrator(object):
             replica_fields = old_fields
             replica_jira = self.old_jira
 
+        made_changes = False
+
         # check status: this will need to handle resolution
         if primary_fields["status"]["name"] != replica_fields["status"]["name"]:
             replica_jira.transition(replica_key, primary_fields["status"]["name"])
+            made_changes = True
 
         update_fields = {}
 
@@ -597,8 +600,12 @@ class JiraMigrator(object):
             data = {"fields": update_fields}
             update_resp = replica_jira.put(
                 "/rest/api/2/issue/{key}".format(key=replica_key), as_json=data)
+            made_changes = True
             if not update_resp.ok:
                 raise JiraIssueError(update_resp.text)
+
+        if not made_changes:
+            raise JiraIssueSkip("No changes to sync")
 
         return new_key if forwards else old_key
 
