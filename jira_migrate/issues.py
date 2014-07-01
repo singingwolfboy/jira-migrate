@@ -116,12 +116,12 @@ class JiraMigrator(object):
         # Don't even try to set these fields -- it just won't work.
         self.ignored_fields = set((
             "aggregateprogress", "created", "creator", "progress", "status", "updated",
-            "votes", "watches", "workratio", "lastViewed", "resolution", "resolutiondate",
+            "votes", "watches", "workratio", "lastViewed", "resolutiondate",
             "worklog", "timespent", "aggregatetimespent", "fixVersions",
             # find a way to do these:
             "environment", "issuelinks",
             # structural things we do another way:
-            "subtasks", "comment", "attachment",
+            "subtasks", "comment", "attachment", "resolution",
             # custom fields that cannot be set
             self.new_custom_fields_inv["Rank (Obsolete)"],
             self.new_custom_fields_inv["Testing Status"],
@@ -353,7 +353,11 @@ class JiraMigrator(object):
 
         # transition to the correct status
         status = old_issue["fields"]["status"]["name"]
-        self.new_jira.transition(new_key, status)
+        if old_issue["fields"]["resolution"]:
+            resolution = old_issue["fields"]["resolution"]["name"]
+        else:
+            resolution = None
+        self.new_jira.transition(new_key, status, resolution=resolution)
 
         # A number of things get added as comments.  We collect them up, sort
         # them by date, and add them all at the end.
@@ -546,9 +550,13 @@ class JiraMigrator(object):
 
         made_changes = False
 
-        # check status: this will need to handle resolution
+        # check status and resolution
         if primary_fields["status"]["name"] != replica_fields["status"]["name"]:
-            replica_jira.transition(replica_key, primary_fields["status"]["name"])
+            if primary_fields["resolution"]:
+                resolution = primary_fields["resolution"]["name"]
+            else:
+                resolution = None
+            replica_jira.transition(replica_key, primary_fields["status"]["name"], resolution=resolution)
             made_changes = True
 
         update_fields = {}
@@ -563,17 +571,6 @@ class JiraMigrator(object):
             r_priority_map = replica_jira.resource_map("priority")
             r_priority_map_inv = {name: id for id, name in r_priority_map.items()}
             update_fields["priority"] = {"id": r_priority_map_inv[p_priority_name]}
-
-        # check resolution: the "resolution" field can be a dict, or None
-        if primary_fields["resolution"] is None:
-            if replica_fields["resolution"] is not None:
-                update_fields["resolution"] = None
-        else:
-            p_resolution_name = primary_fields["resolution"]["name"]
-            if replica_fields["resolution"] is None or replica_fields["resolution"]["name"] != p_resolution_name:
-                r_resolution_map = replica_jira.resource_map("resolution")
-                r_resolution_map_inv = {name: id for id, name in r_resolution_map.items()}
-                update_fields["resolution"] = {"id": r_resolution_map_inv[p_resolution_name]}
 
         # check assignee: the "assignee" field can be a dict, or None
         if primary_fields["assignee"] is None:

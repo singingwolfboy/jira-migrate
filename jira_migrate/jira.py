@@ -197,8 +197,11 @@ class Jira(object):
             errors = link_resp.json()["errors"]
             pprint(errors)
 
-    def transition(self, issue_key, to):
-        transitions_url = "/rest/api/2/issue/{key}/transitions".format(key=issue_key)
+    def transition(self, issue_key, to, resolution=None):
+        transitions_url = (
+            "/rest/api/2/issue/{key}/transitions"
+            "?expand=transitions.fields".format(key=issue_key)
+        )
         transitions_resp = self.get(transitions_url)
         if not transitions_resp.ok:
             msgs = transitions_resp.json()["errorMessages"]
@@ -211,6 +214,14 @@ class Jira(object):
                         "id": t["id"]
                     }
                 }
+
+                if t.get("fields", {}):
+                    fields = {}
+                    if t["fields"]["resolution"] and resolution:
+                        fields["resolution"] = {"name": resolution}
+                    if fields:
+                        data["fields"] = fields
+
                 set_transition_resp = self.post(transitions_url, as_json=data)
                 if not set_transition_resp.ok:
                     msgs = set_transition_resp.json()["errorMessages"]
