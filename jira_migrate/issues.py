@@ -549,6 +549,7 @@ class JiraMigrator(object):
             replica_jira = self.old_jira
 
         made_changes = False
+        updated_resolution = False
 
         # check status and resolution
         if primary_fields["status"]["name"] != replica_fields["status"]["name"]:
@@ -558,6 +559,7 @@ class JiraMigrator(object):
                 resolution = None
             replica_jira.transition(replica_key, primary_fields["status"]["name"], resolution=resolution)
             made_changes = True
+            updated_resolution = True
 
         update_fields = {}
 
@@ -589,6 +591,16 @@ class JiraMigrator(object):
             made_changes = True
             if not update_resp.ok:
                 raise JiraIssueError(update_resp.text)
+
+        # special case: the status could be the same while resolution is different.
+        # in this case, raise an error.
+        if not updated_resolution:
+            primary_resolution = (primary_fields.get("resolution", {}) or {}).get("name", None)
+            replica_resolution = (replica_fields.get("resolution", {}) or {}).get("name", None)
+            if primary_resolution != replica_resolution:
+                raise JiraIssueError("Resolutions differ: {primary} vs {replica}".format(
+                    primary=primary_resolution, replica=replica_resolution
+                ))
 
         if not made_changes:
             raise JiraIssueSkip("No changes to sync")
