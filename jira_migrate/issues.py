@@ -58,17 +58,6 @@ class JiraMigrator(object):
             self.private_label = config.get("origin", "private-label")
         except NoOptionError:
             self.private_label = None
-        try:
-            self.private_id = config.get("destination", "private-id")
-        except NoOptionError:
-            if self.private_label or self.private_issues:
-                raise ConfigurationError(
-                    "If you specify origin.private or origin.private-label, "
-                    "you must specify destination.private-id"
-                )
-            if self.all_private:
-                raise ConfigurationError("Must specify destination.private-id")
-            self.private_id = None
 
         self.old_jira = Jira("old  ", config, "origin", debug)
         self.new_jira = Jira("  new", config, "destination", debug)
@@ -182,7 +171,7 @@ class JiraMigrator(object):
                 new_issue_fields[field] = value
 
         if self.should_issue_be_private(old_issue):
-            new_issue_fields["security"] = {"id": self.private_id}
+            new_issue_fields["security"] = {"name": "Private"}
 
         # Store the original key.
         new_issue_fields[self.new_custom_fields_inv["Migrated Original Key"]] = old_issue["key"]

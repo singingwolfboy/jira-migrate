@@ -134,21 +134,33 @@ class Jira(object):
         return self.user_map[username]
 
     @property
-    @memoize
     def custom_field_map(self):
         """
         Returns a mapping of custom field ID to name of the custom field.
         """
-        field_resp = self.get("/rest/api/2/field")
+        field_resp = self.get_resource("field")
         fields = {f["id"]: f["name"] for f in field_resp.json() if f["custom"]}
         return fields
 
     @memoize
+    def get_resource(self, resource):
+        resp = self.get("/rest/api/2/{resource}".format(resource=resource))
+        if not resp.ok:
+            raise requests.exceptions.RequestException(resp.text)
+        return resp
+
+    @memoize
+    def get_project(self, project_key):
+        resp = self.get("/rest/api/2/project/{key}".format(key=project_key))
+        if not resp.ok:
+            raise requests.exceptions.RequestException(resp.text)
+        return resp
+
     def resource_map(self, resource):
         """
         Returns a mapping of ID to name for the given resource.
         """
-        resp = self.get("/rest/api/2/{resource}".format(resource=resource))
+        resp = self.get_resource(resource)
         return {x["id"]: x["name"] for x in resp.json()}
 
     @property
