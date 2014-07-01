@@ -681,7 +681,7 @@ class JiraMigrator(object):
                 alt_key = self.sync_issue(**{new_or_old: key, "forwards": forwards})
             except JiraIssueSkip as jis:
                 self.skipped(key)
-                print("... Skipped {old}: {jis}\n".format(old=old_key, jis=jis))
+                print("... Skipped {key}: {jis}\n".format(key=key, jis=jis))
             except JiraIssueError as jie:
                 self.failed(key)
                 print("... Couldn't migrate {key}: {jie}\n".format(key=key, jie=jie))
