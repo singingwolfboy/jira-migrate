@@ -505,6 +505,12 @@ class JiraMigrator(object):
             if not old_key:
                 old_key_field = self.new_custom_fields_inv["Migrated Original Key"]
                 old_key = new_fields[old_key_field]
+                if not old_key:
+                    msg = (
+                        "Issue {key} on new JIRA doesn't have a corresponding "
+                        "key on the old JIRA".format(key=new_key)
+                    )
+                    raise JiraIssueError(msg)
 
         old_issue_resp = self.old_jira.get("/rest/api/2/issue/{key}".format(key=old_key))
         if old_issue_resp.status_code == 404:
@@ -521,6 +527,12 @@ class JiraMigrator(object):
         if not new_key:
             new_key_field = self.old_custom_fields_inv["Migrated New Key"]
             new_key = old_fields[new_key_field]
+            if not new_key:
+                msg = (
+                    "Issue {key} on old JIRA doesn't have a corresponding "
+                    "key on the new JIRA".format(key=old_key)
+                )
+                raise JiraIssueError(msg)
 
             new_issue_resp = self.new_jira.get("/rest/api/2/issue/{key}".format(key=new_key))
             if new_issue_resp.status_code == 404:
