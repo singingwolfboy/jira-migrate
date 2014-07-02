@@ -551,16 +551,20 @@ class JiraMigrator(object):
             primary_key = old_key
             primary_fields = old_fields
             primary_jira = self.old_jira
+            primary_custom_fields = self.old_custom_fields_inv
             replica_key = new_key
             replica_fields = new_fields
             replica_jira = self.new_jira
+            replica_custom_fields = self.new_custom_fields_inv
         else:
             primary_key = new_key
             primary_fields = new_fields
             primary_jira = self.new_jira
+            primary_custom_fields = self.new_custom_fields_inv
             replica_key = old_key
             replica_fields = old_fields
             replica_jira = self.old_jira
+            replica_custom_fields = self.old_custom_fields_inv
 
         made_changes = False
         updated_resolution = False
@@ -587,6 +591,10 @@ class JiraMigrator(object):
             r_priority_map = replica_jira.resource_map("priority")
             r_priority_map_inv = {name: id for id, name in r_priority_map.items()}
             update_fields["priority"] = {"id": r_priority_map_inv[p_priority_name]}
+
+        # check story points
+        if primary_fields[primary_custom_fields["Story Points"]] != replica_fields[replica_custom_fields["Story Points"]]:
+            update_fields[replica_custom_fields["Story Points"]] = primary_fields[primary_custom_fields["Story Points"]]
 
         # check assignee: the "assignee" field can be a dict, or None
         if primary_fields["assignee"] is None:
