@@ -100,7 +100,7 @@ class JiraMigrator(object):
             if name not in self.old_custom_fields_inv:
                 raise JiraIssueError("You need to create a {} custom field in the old JIRA".format(name))
 
-        for name in ("Migrated Sprint", "Migrated Status", "Migrated Original Key"):
+        for name in ("Migrated Sprint", "Migrated Status", "Migrated Original Key", "Migrated Creation Date"):
             if name not in self.new_custom_fields_inv:
                 raise JiraIssueError("You need to create a {} custom field in the new JIRA".format(name))
 
@@ -175,6 +175,8 @@ class JiraMigrator(object):
 
         # Store the original key.
         new_issue_fields[self.new_custom_fields_inv["Migrated Original Key"]] = old_issue["key"]
+        # Store the original creation date
+        new_issue_fields[self.new_custom_fields_inv["Migrated Creation Date"]] = old_issue["fields"]["created"]
 
         new_issue = {"fields": new_issue_fields}
         # it would be nice if we could specify the key for the new issue,
@@ -584,6 +586,12 @@ class JiraMigrator(object):
                 replica_jira.get_or_create_user(primary_fields["assignee"])
                 update_fields["assignee"] = {"name": p_assignee_name}
 
+        # if we're syncing forwards, make sure we've set the original creation date
+        migrated_creation_date_field = self.new_custom_fields_inv["Migrated Creation Date"]
+        if forwards and not new_fields[migrated_creation_date_field]:
+            update_fields[migrated_creation_date_field] = old_fields["created"]
+
+        # do the update!
         if update_fields:
             data = {"fields": update_fields}
             update_resp = replica_jira.put(
