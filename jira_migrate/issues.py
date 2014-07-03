@@ -642,7 +642,6 @@ class JiraMigrator(object):
 
         return new_key if forwards else old_key
 
-    @memoize
     def migrate_issue_by_key(self, old_key, idempotent=True):
         """
         Returns the new key, or None.
