@@ -593,8 +593,15 @@ class JiraMigrator(object):
             update_fields["priority"] = {"id": r_priority_map_inv[p_priority_name]}
 
         # check story points
-        if primary_fields[primary_custom_fields["Story Points"]] != replica_fields[replica_custom_fields["Story Points"]]:
-            update_fields[replica_custom_fields["Story Points"]] = primary_fields[primary_custom_fields["Story Points"]]
+        p_story_points = primary_custom_fields["Story Points"]
+        r_story_points = replica_custom_fields["Story Points"]
+        sp_needs_update = (
+            p_story_points in primary_fields and
+            r_story_points in replica_fields and
+            primary_fields[p_story_points] != replica_fields[r_story_points]
+        )
+        if sp_needs_update:
+            update_fields[r_story_points] = primary_fields[p_story_points]
 
         # check assignee: the "assignee" field can be a dict, or None
         if primary_fields["assignee"] is None:
