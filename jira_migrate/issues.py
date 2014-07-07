@@ -670,8 +670,8 @@ class JiraMigrator(object):
 
         return new_key
 
-    def migrate_by_jql(self, jql, limit=None, idempotent=True):
-        issues = self.old_jira.get_jql_issues(jql)
+    def migrate_by_jql(self, jql, limit=None, offset=0, idempotent=True):
+        issues = self.old_jira.get_jql_issues(jql, offset=offset)
         self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
         self.migrate_all_issues(idempotent)
 
@@ -753,6 +753,9 @@ def parse_arguments(argv):
     parser.add_argument("--limit", type=int,
         help="Don't migrate more than this many issues",
     )
+    parser.add_argument("--offset", type=int, default=0,
+        help="Skip the first N issues",
+    )
     parser.add_argument("--no-idempotent", dest="idempotent",
         action="store_const", const=False, default=True,
         help="Create new issues for already-migrated issues",
@@ -790,7 +793,7 @@ def migrate(config, args):
             )
         else:
             migrator.migrate_by_jql(
-                args.jql, limit=args.limit, idempotent=args.idempotent,
+                args.jql, limit=args.limit, offset=args.offset, idempotent=args.idempotent,
             )
     except KeyboardInterrupt:
         print()

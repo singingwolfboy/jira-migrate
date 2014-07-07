@@ -65,9 +65,9 @@ class Jira(object):
             url = self.host.with_path(url)
         return url
 
-    def paginated_api(self, url, object_name):
+    def paginated_api(self, url, object_name, start=0):
         url = self.url(url)
-        return paginated_api(url, object_name, session=self.session)
+        return paginated_api(url, object_name, session=self.session, start=start)
 
     ## JIRA concepts.
 
@@ -81,9 +81,9 @@ class Jira(object):
         else:
             return None
 
-    def get_jql_issues(self, jql):
+    def get_jql_issues(self, jql, offset=0):
         url = self.url("/rest/api/2/search").add_query_param("jql", jql)
-        issues = self.paginated_api(url, "issues")
+        issues = self.paginated_api(url, "issues", start=offset)
         return issues
 
     def create_user(self, user):
