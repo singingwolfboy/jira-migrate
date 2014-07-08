@@ -14,7 +14,7 @@ import requests
 from requests.compat import json
 
 from .jira import Jira, MissingUserInfo, MAPPED_RESOURCES
-from .utils import memoize
+from .utils import memoize, memoize_except
 
 
 class ConfigurationError(Exception):
@@ -643,6 +643,7 @@ class JiraMigrator(object):
 
         return new_key if forwards else old_key
 
+    @memoize_except(None)
     def migrate_issue_by_key(self, old_key, idempotent=True):
         """
         Returns the new key, or None.

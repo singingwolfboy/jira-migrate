@@ -107,3 +107,47 @@ def memoize(func):
     memoized.uncache = uncache
 
     return memoized
+
+def memoize_except(values):
+    """
+    Just like normal `memoize`, but don't cache when the function returns
+    certain values. For example, you could use this to make a function not
+    cache `None`.
+    """
+    if not isinstance(values, (list, tuple)):
+        values = (values,)
+
+    def decorator(func):
+        cache = {}
+
+        def mk_key(*args, **kwargs):
+            return (tuple(args), tuple(sorted(kwargs.items())))
+
+        @functools.wraps(func)
+        def memoized(*args, **kwargs):
+            key = memoized.mk_key(*args, **kwargs)
+            try:
+                return cache[key]
+            except KeyError:
+                value = func(*args, **kwargs)
+                if not value in values:
+                    cache[key] = value
+                return value
+
+        memoized.mk_key = mk_key
+
+        def uncache(*args, **kwargs):
+            key = memoized.mk_key(*args, **kwargs)
+            if key in cache:
+                del cache[key]
+                return True
+            else:
+                return False
+
+        memoized.uncache = uncache
+
+        return memoized
+
+    return decorator
+
+
