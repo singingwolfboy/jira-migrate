@@ -2,6 +2,7 @@ import json
 from pprint import pprint
 
 import requests
+from requests.compat import json
 from urlobject import URLObject
 
 from .utils import memoize, paginated_api, Session
@@ -35,9 +36,17 @@ class Jira(object):
 
     ## Basic requests stuff.
 
-    def get(self, url):
+    def get(self, url, retries=3):
         """Returns a requests object."""
         url = self.url(url)
+        for _ in xrange(retries):
+            resp = self.session.get(url)
+            try:
+                resp.json()
+            except json.JSONDecodeError:
+                continue
+            else:
+                return resp
         return self.session.get(url)
 
     def post(self, url, data=None, as_json=None):
