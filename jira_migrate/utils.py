@@ -82,12 +82,28 @@ def paginated_api(url, obj_name, session=None, start=0, **fields):
 def memoize(func):
     cache = {}
 
+    def mk_key(*args, **kwargs):
+        return (tuple(args), tuple(sorted(kwargs.items())))
+
     @functools.wraps(func)
     def memoized(*args, **kwargs):
-        key = (tuple(args), tuple(sorted(kwargs.items())))
+        key = memoized.mk_key(*args, **kwargs)
         try:
             return cache[key]
         except KeyError:
             cache[key] = func(*args, **kwargs)
             return cache[key]
+
+    memoized.mk_key = mk_key
+
+    def uncache(*args, **kwargs):
+        key = memoized.mk_key(*args, **kwargs)
+        if key in cache:
+            del cache[key]
+            return True
+        else:
+            return False
+
+    memoized.uncache = uncache
+
     return memoized

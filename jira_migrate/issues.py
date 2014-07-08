@@ -474,6 +474,7 @@ class JiraMigrator(object):
             if not new_key_resp.ok:
                 raise JiraIssueError(new_key_resp.text)
 
+        self.has_issue_migrated.uncache(old_key)
 
         if warnings:
             print("***    warnings:")
