@@ -643,6 +643,47 @@ class JiraMigrator(object):
 
         return new_key if forwards else old_key
 
+    def _is_migration_link(self, remote_link):
+        return (
+            remote_link["object"]["url"].startswith(self.new_jira.host) and
+            remote_link["object"]["title"].startswith("Migrated Issue")
+        )
+
+    def _dedupe_issue_by_key(self, old_key):
+        remote_link_resp = self.old_jira.get("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
+        remote_links = remote_link_resp.json()
+        migration_links = [l for l in remote_links if self._is_migration_link(l)]
+        if len(migration_links) < 2:
+            raise JiraIssueSkip()
+        # save the first one, delete the others
+        deleted_keys = []
+        for migration_link in migration_links[1:]:
+            new_key = migration_link["object"]["url"].rsplit("/", 1)[-1]
+            del_issue_resp = self.new_jira.delete(
+                "/rest/api/2/issue/{key}?deleteSubtasks=true".format(key=new_key)
+            )
+            if not del_issue_resp.ok and del_issue_resp.status_code != 404:
+                raise JiraIssueError("Failed to delete {key} on new JIRA: {text}".format(
+                    key=new_key, text=del_issue_resp.text
+                ))
+            del_link_resp = self.old_jira.delete(URLObject(migration_link["self"]))
+            if not del_link_resp.ok:
+                raise JiraIssueError("Failed to delete link on old JIRA: {text}".format(
+                    text=del_link_resp.text
+                ))
+        return deleted_keys
+
+    def dedupe_issue_by_key(self, old_key):
+        try:
+            deleted_keys = self._dedupe_issue_by_key(old_key)
+        except JiraIssueError as jie:
+            self.failed(old_key)
+            print("... Couldn't dedupe {old}: {jie}\n".format(old=old_key, jie=jie))
+        except JiraIssueSkip:
+            self.skipped(old_key)
+        else:
+            self.succeeded(old_key, deleted_keys)
+
     @memoize_except(None)
     def migrate_issue_by_key(self, old_key, idempotent=True):
         """
@@ -686,6 +727,12 @@ class JiraMigrator(object):
         self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
         self.sync_all_issues(forwards=forwards)
 
+    def dedupe_by_jql(self, jql, limit=None):
+        issues = self.old_jira.get_jql_issues(jql)
+        self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
+        for key in itertools.chain.from_iterable(self.issue_iterables):
+            self.dedupe_issue_by_key(key)
+
     def migrate_by_file(self, key_file, limit=None, idempotent=True):
         stripped_lines = (line.strip() for line in key_file)
         nonblank_lines = (line for line in stripped_lines if line)
@@ -699,6 +746,14 @@ class JiraMigrator(object):
         key_generator = itertools.islice(nonblank_lines, limit)
         self.also_run_issues(key_generator)
         self.sync_all_issues(forwards=forwards)
+
+    def dedupe_by_file(self, key_file, limit=None):
+        stripped_lines = (line.strip() for line in key_file)
+        nonblank_lines = (line for line in stripped_lines if line)
+        key_generator = itertools.islice(nonblank_lines, limit)
+        self.also_run_issues(key_generator)
+        for key in itertools.chain.from_iterable(self.issue_iterables):
+            self.dedupe_issue_by_key(key)
 
     def migrate_all_issues(self, idempotent=True):
         for key in itertools.chain.from_iterable(self.issue_iterables):
@@ -766,6 +821,10 @@ def parse_arguments(argv):
         action="store_const", const=True, default=False,
         help="Create all new issues as private",
     )
+    parser.add_argument("--dedupe",
+        action="store_true", default=False,
+        help="Deduplicate issues instead of doing anything else",
+    )
 
     args = parser.parse_args(argv[1:])
 
@@ -780,6 +839,9 @@ def parse_arguments(argv):
         raise ConfigurationError("Cannot specify both JQL statement and keys file")
 
     args.sync = bool(args.sync_forwards or args.sync_backwards)
+
+    if args.sync and args.dedupe:
+        raise ConfigurationError("Cannot sync and dedupe simultaneously")
 
     return args
 
@@ -856,6 +918,33 @@ def sync(config, args):
     return 0
 
 
+def dedupe(config, args):
+    migrator = JiraMigrator(config, debug=args.debug)
+
+    start = time.time()
+    try:
+        if args.file:
+            migrator.dedupe_by_file(
+                args.file, limit=args.limit,
+            )
+        else:
+            migrator.dedupe_by_jql(
+                args.jql, limit=args.limit,
+            )
+    except KeyboardInterrupt:
+        print()
+    end = time.time()
+    print(
+        "Deduped {success} issues, {failure} failures, {skip} skips "
+        "in {duration:.1f} minutes".format(
+            success=len(migrator.success), failure=len(migrator.failure),
+            skip=len(migrator.skip), duration=(end - start)/60.0,
+        )
+    )
+    print("Made {} requests to old JIRA, {} requests to new".format(
+        migrator.old_jira.session.count, migrator.new_jira.session.count,
+    ))
+
 def main(argv):
     config = SafeConfigParser()
     args = parse_arguments(argv)
@@ -867,5 +956,7 @@ def main(argv):
 
     if args.sync:
         return sync(config, args)
+    elif args.dedupe:
+        return dedupe(config, args)
     else:
         return migrate(config, args)
