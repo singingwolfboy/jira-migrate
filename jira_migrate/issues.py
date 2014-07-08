@@ -727,17 +727,17 @@ class JiraMigrator(object):
         self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
         self.migrate_all_issues(idempotent)
 
-    def sync_by_jql(self, jql, limit=None, forwards=False):
+    def sync_by_jql(self, jql, limit=None, offset=0, forwards=False):
         if forwards:
             jira = self.old_jira
         else:
             jira = self.new_jira
-        issues = jira.get_jql_issues(jql)
+        issues = jira.get_jql_issues(jql, offset=offset)
         self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
         self.sync_all_issues(forwards=forwards)
 
-    def dedupe_by_jql(self, jql, limit=None, dry_run=False):
-        issues = self.old_jira.get_jql_issues(jql)
+    def dedupe_by_jql(self, jql, limit=None, offset=0, dry_run=False):
+        issues = self.old_jira.get_jql_issues(jql, offset=offset)
         self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
         for key in itertools.chain.from_iterable(self.issue_iterables):
             self.dedupe_issue_by_key(key, dry_run=dry_run)
@@ -906,7 +906,7 @@ def sync(config, args):
             )
         else:
             migrator.sync_by_jql(
-                args.jql, limit=args.limit, forwards=args.sync_forwards,
+                args.jql, limit=args.limit, offset=args.offset, forwards=args.sync_forwards,
             )
     except KeyboardInterrupt:
         print()
@@ -942,7 +942,7 @@ def dedupe(config, args):
             )
         else:
             migrator.dedupe_by_jql(
-                args.jql, limit=args.limit, dry_run=args.dry_run,
+                args.jql, limit=args.limit, offset=args.offset, dry_run=args.dry_run,
             )
     except KeyboardInterrupt:
         print()
