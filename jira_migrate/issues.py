@@ -649,7 +649,7 @@ class JiraMigrator(object):
             remote_link["object"]["title"].startswith("Migrated Issue")
         )
 
-    def _dedupe_issue_by_key(self, old_key):
+    def _dedupe_issue_by_key(self, old_key, dry_run=False):
         remote_link_resp = self.old_jira.get("/rest/api/2/issue/{key}/remotelink".format(key=old_key))
         remote_links = remote_link_resp.json()
         migration_links = [l for l in remote_links if self._is_migration_link(l)]
@@ -659,23 +659,32 @@ class JiraMigrator(object):
         deleted_keys = []
         for migration_link in migration_links[1:]:
             new_key = migration_link["object"]["url"].rsplit("/", 1)[-1]
-            del_issue_resp = self.new_jira.delete(
-                "/rest/api/2/issue/{key}?deleteSubtasks=true".format(key=new_key)
-            )
-            if not del_issue_resp.ok and del_issue_resp.status_code != 404:
-                raise JiraIssueError("Failed to delete {key} on new JIRA: {text}".format(
-                    key=new_key, text=del_issue_resp.text
-                ))
-            del_link_resp = self.old_jira.delete(URLObject(migration_link["self"]))
-            if not del_link_resp.ok:
-                raise JiraIssueError("Failed to delete link on old JIRA: {text}".format(
-                    text=del_link_resp.text
-                ))
+            if not dry_run:
+                del_issue_resp = self.new_jira.delete(
+                    "/rest/api/2/issue/{key}?deleteSubtasks=true".format(key=new_key)
+                )
+                if not del_issue_resp.ok and del_issue_resp.status_code != 404:
+                    raise JiraIssueError("Failed to delete {key} on new JIRA: {text}".format(
+                        key=new_key, text=del_issue_resp.text
+                    ))
+                del_link_resp = self.old_jira.delete(URLObject(migration_link["self"]))
+                if not del_link_resp.ok:
+                    raise JiraIssueError("Failed to delete link on old JIRA: {text}".format(
+                        text=del_link_resp.text
+                    ))
+            deleted_keys.append(new_key)
+        if dry_run:
+            primary_new_key = migration_links[1]["object"]["url"].rsplit("/", 1)[-1]
+            print(
+                "{old_key} on old JIRA maps to {new_key} on new JIRA. "
+                "Would delete dupes {dupes} on new JIRA.".format(
+                    old_key=old_key, new_key=primary_new_key, dupes=deleted_keys
+            ))
         return deleted_keys
 
-    def dedupe_issue_by_key(self, old_key):
+    def dedupe_issue_by_key(self, old_key, dry_run=False):
         try:
-            deleted_keys = self._dedupe_issue_by_key(old_key)
+            deleted_keys = self._dedupe_issue_by_key(old_key, dry_run=dry_run)
         except JiraIssueError as jie:
             self.failed(old_key)
             print("... Couldn't dedupe {old}: {jie}\n".format(old=old_key, jie=jie))
@@ -727,11 +736,11 @@ class JiraMigrator(object):
         self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
         self.sync_all_issues(forwards=forwards)
 
-    def dedupe_by_jql(self, jql, limit=None):
+    def dedupe_by_jql(self, jql, limit=None, dry_run=False):
         issues = self.old_jira.get_jql_issues(jql)
         self.also_run_issues(issue["key"] for issue in itertools.islice(issues, limit))
         for key in itertools.chain.from_iterable(self.issue_iterables):
-            self.dedupe_issue_by_key(key)
+            self.dedupe_issue_by_key(key, dry_run=dry_run)
 
     def migrate_by_file(self, key_file, limit=None, idempotent=True):
         stripped_lines = (line.strip() for line in key_file)
@@ -747,13 +756,13 @@ class JiraMigrator(object):
         self.also_run_issues(key_generator)
         self.sync_all_issues(forwards=forwards)
 
-    def dedupe_by_file(self, key_file, limit=None):
+    def dedupe_by_file(self, key_file, limit=None, dry_run=False):
         stripped_lines = (line.strip() for line in key_file)
         nonblank_lines = (line for line in stripped_lines if line)
         key_generator = itertools.islice(nonblank_lines, limit)
         self.also_run_issues(key_generator)
         for key in itertools.chain.from_iterable(self.issue_iterables):
-            self.dedupe_issue_by_key(key)
+            self.dedupe_issue_by_key(key, dry_run=dry_run)
 
     def migrate_all_issues(self, idempotent=True):
         for key in itertools.chain.from_iterable(self.issue_iterables):
@@ -824,6 +833,10 @@ def parse_arguments(argv):
     parser.add_argument("--dedupe",
         action="store_true", default=False,
         help="Deduplicate issues instead of doing anything else",
+    )
+    parser.add_argument("-n", "--dry-run",
+        action="store_true", default=False,
+        help="Only show what would be changed. Currently only works for dedupe.",
     )
 
     args = parser.parse_args(argv[1:])
@@ -925,11 +938,11 @@ def dedupe(config, args):
     try:
         if args.file:
             migrator.dedupe_by_file(
-                args.file, limit=args.limit,
+                args.file, limit=args.limit, dry_run=args.dry_run,
             )
         else:
             migrator.dedupe_by_jql(
-                args.jql, limit=args.limit,
+                args.jql, limit=args.limit, dry_run=args.dry_run,
             )
     except KeyboardInterrupt:
         print()
