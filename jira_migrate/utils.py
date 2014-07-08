@@ -2,6 +2,7 @@ from __future__ import print_function, unicode_literals
 
 import functools
 import requests
+from requests.compat import json
 from urlobject import URLObject
 
 
@@ -52,7 +53,7 @@ class Session(object):
         return self.session.delete(url, *args, **kwargs)
 
 
-def paginated_api(url, obj_name, session=None, start=0, **fields):
+def paginated_api(url, obj_name, session=None, start=0, retries=3, **fields):
     session = session or requests.Session()
     more_results = True
     while more_results:
@@ -60,14 +61,15 @@ def paginated_api(url, obj_name, session=None, start=0, **fields):
             url.set_query_param("startAt", str(start))
                .set_query_params(**fields)
         )
-        result_resp = session.get(result_url)
-        if not result_resp.ok:
+        for _ in xrange(retries):
             try:
-                body = result_resp.json()
-                err = body["errorMessages"]
-            except ValueError:
-                err = result_resp.text
-            raise requests.exceptions.RequestException(err)
+                result_resp = session.get(result_url)
+                result = result_resp.json()
+                break
+            except json.JSONDecodeError:
+                continue
+        if not result_resp.ok:
+            raise requests.exceptions.RequestException(result)
         result = result_resp.json()
         for obj in result[obj_name]:
             yield obj
