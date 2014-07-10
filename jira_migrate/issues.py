@@ -104,7 +104,11 @@ class JiraMigrator(object):
             if name not in self.old_custom_fields_inv:
                 raise JiraIssueError("You need to create a {} custom field in the old JIRA".format(name))
 
-        for name in ("Migrated Sprint", "Migrated Status", "Migrated Original Key", "Migrated Creation Date"):
+        new_custom_field_names = (
+            "Migrated Sprint", "Migrated Status", "Migrated Original Key",
+            "Migrated Creation Date", "Migrated Closed Date",
+        )
+        for name in new_custom_field_names:
             if name not in self.new_custom_fields_inv:
                 raise JiraIssueError("You need to create a {} custom field in the new JIRA".format(name))
 
@@ -181,6 +185,9 @@ class JiraMigrator(object):
         new_issue_fields[self.new_custom_fields_inv["Migrated Original Key"]] = old_issue["key"]
         # Store the original creation date
         new_issue_fields[self.new_custom_fields_inv["Migrated Creation Date"]] = old_issue["fields"]["created"]
+        # Store the original resolution date, if present
+        if old_issue["fields"]["resolutiondate"]:
+            new_issue_fields[self.new_custom_fields_inv["Migrated Closed Date"]] = old_issue["fields"]["resolutiondate"]
 
         new_issue = {"fields": new_issue_fields}
         # it would be nice if we could specify the key for the new issue,
@@ -590,10 +597,14 @@ class JiraMigrator(object):
                 replica_jira.get_or_create_user(primary_fields["assignee"])
                 update_fields["assignee"] = {"name": p_assignee_name}
 
-        # if we're syncing forwards, make sure we've set the original creation date
+        # if we're syncing forwards, make sure we've set the original creation date and resolution date
         migrated_creation_date_field = self.new_custom_fields_inv["Migrated Creation Date"]
-        if forwards and not new_fields[migrated_creation_date_field]:
-            update_fields[migrated_creation_date_field] = old_fields["created"]
+        migrated_closed_date_field = self.new_custom_fields_inv["Migrated Closed Date"]
+        if forwards:
+            if not new_fields[migrated_creation_date_field] and old_fields["created"]:
+                update_fields[migrated_creation_date_field] = old_fields["created"]
+            if not new_fields[migrated_closed_date_field] and old_fields["resolutiondate"]:
+                update_fields[migrated_closed_date_field] = old_fields["resolutiondate"]
 
         # do the update!
         if update_fields:
