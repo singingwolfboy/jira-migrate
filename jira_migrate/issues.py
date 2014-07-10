@@ -106,7 +106,7 @@ class JiraMigrator(object):
 
         new_custom_field_names = (
             "Migrated Sprint", "Migrated Status", "Migrated Original Key",
-            "Migrated Creation Date", "Migrated Closed Date",
+            "Migrated Creation Date", "Migrated Close Date",
         )
         for name in new_custom_field_names:
             if name not in self.new_custom_fields_inv:
@@ -187,7 +187,7 @@ class JiraMigrator(object):
         new_issue_fields[self.new_custom_fields_inv["Migrated Creation Date"]] = old_issue["fields"]["created"]
         # Store the original resolution date, if present
         if old_issue["fields"]["resolutiondate"]:
-            new_issue_fields[self.new_custom_fields_inv["Migrated Closed Date"]] = old_issue["fields"]["resolutiondate"]
+            new_issue_fields[self.new_custom_fields_inv["Migrated Close Date"]] = old_issue["fields"]["resolutiondate"]
 
         new_issue = {"fields": new_issue_fields}
         # it would be nice if we could specify the key for the new issue,
@@ -599,7 +599,7 @@ class JiraMigrator(object):
 
         # if we're syncing forwards, make sure we've set the original creation date and resolution date
         migrated_creation_date_field = self.new_custom_fields_inv["Migrated Creation Date"]
-        migrated_closed_date_field = self.new_custom_fields_inv["Migrated Closed Date"]
+        migrated_closed_date_field = self.new_custom_fields_inv["Migrated Close Date"]
         if forwards:
             if not new_fields[migrated_creation_date_field] and old_fields["created"]:
                 update_fields[migrated_creation_date_field] = old_fields["created"]
