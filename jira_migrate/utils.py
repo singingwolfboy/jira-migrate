@@ -2,7 +2,6 @@ from __future__ import print_function, unicode_literals
 
 import functools
 import requests
-from requests.compat import json
 from urlobject import URLObject
 
 
@@ -66,7 +65,7 @@ def paginated_api(url, obj_name, session=None, start=0, retries=3, **fields):
                 result_resp = session.get(result_url)
                 result = result_resp.json()
                 break
-            except json.JSONDecodeError:
+            except ValueError:
                 continue
         if not result_resp.ok:
             raise requests.exceptions.RequestException(result)

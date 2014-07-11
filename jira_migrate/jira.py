@@ -2,7 +2,6 @@ import json
 from pprint import pprint
 
 import requests
-from requests.compat import json
 from urlobject import URLObject
 
 from .utils import memoize, paginated_api, Session
@@ -43,7 +42,7 @@ class Jira(object):
             resp = self.session.get(url)
             try:
                 resp.json()
-            except json.JSONDecodeError:
+            except ValueError:
                 continue
             else:
                 return resp
