@@ -352,6 +352,12 @@ class JiraMigrator(object):
 
         new_key = new_issue_body["key"]
 
+        #
+        # At this point, the new issue has been created.  If we raise an
+        # exception below this point, then the caller will think the issue
+        # hasn't migrated, and will attempt it again, causing duplicates.
+        #
+
         # transition to the correct status
         status = old_issue["fields"]["status"]["name"]
         if old_issue["fields"]["resolution"]:
@@ -442,20 +448,27 @@ class JiraMigrator(object):
                 self.new_jira.create_user(user_info_resp.json())
             self.new_jira.post(new_watchers_url, as_json=watcher["name"])
 
-        # link new to old
+        # Link new to old.
         self.new_jira.make_link(
             new_key,
             url=self.old_jira.url("/browse/{key}".format(key=old_key)),
             title="Original Issue ({key})".format(key=old_key),
         )
 
-        # link old to new
+        # Update the old issue.
         if idempotent:
+            # Link old to new.
             self.old_jira.make_link(
                 old_key,
                 url=self.new_jira.url("/browse/{key}".format(key=new_key)),
                 title="Migrated Issue ({key})".format(key=new_key),
             )
+
+            # Write the new key into the old issue. This can fail, for example
+            # if the old issue is in the Closed state, which is uneditable.
+            # Don't fail this whole function if this update fails, since that
+            # will tell the caller that we couldn't migrate the issue, and it
+            # will be migrated again.
             new_key_field = self.old_custom_fields_inv["Migrated New Key"]
             data = {
                 "fields": {
@@ -467,7 +480,11 @@ class JiraMigrator(object):
                 as_json=data,
             )
             if not new_key_resp.ok:
-                raise JiraIssueError(new_key_resp.text)
+                try:
+                    msg = new_key_resp.json()["errorMessages"][0]
+                except KeyError, IndexError:
+                    msg = new_key_resp.text
+                warnings.append("Couldn't write Migrated New Key field in old issue: {}".format(msg))
 
         self.has_issue_migrated.uncache(self, old_key)
 
