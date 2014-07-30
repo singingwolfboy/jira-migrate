@@ -169,7 +169,7 @@ class Jira(object):
         Returns a set of field IDs that are of type "user"
         """
         return set(
-            id for id, value in self.field_name
+            id for id, value in self.field_map.items()
             if value.get("schema", {}).get("type", "") == "user"
         )
 

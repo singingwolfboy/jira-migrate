@@ -146,7 +146,18 @@ class JiraMigrator(object):
     def transform_old_issue_to_new(self, old_issue, warnings):
         new_issue_fields = {}
         for field, value in old_issue["fields"].items():
-            if field.startswith("custom"):
+            if not value or field in self.ignored_fields:
+                continue
+
+            field_info = self.old_jira.field_map[field]
+            if "custom" in field_info.get("schema", {}):
+                custom_type = field_info["schema"]["custom"].rsplit(":", 1)[-1]
+            else:
+                custom_type = None
+            # if field_info["name"] == "Is Rerun":
+            #     import pdb; pdb.set_trace()
+
+            if field_info["custom"]:
                 if field in self.custom_fields_old_id_to_new_id:
                     field = self.custom_fields_old_id_to_new_id[field]
                 else:
@@ -171,8 +182,14 @@ class JiraMigrator(object):
                     warnings.append("{name!r} is not a valid {field!r}".format(
                         name=value["name"], field=field
                     ))
-            if value and field not in self.ignored_fields:
-                new_issue_fields[field] = value
+            # handle fields with limited options
+            if custom_type == "select":
+                value = {"value": value["value"]}
+            elif custom_type == "multicheckboxes":
+                value = [{"value": v["value"]} for v in value]
+
+            # set the value on the to-be-created issue
+            new_issue_fields[field] = value
 
         if self.should_issue_be_private(old_issue):
             new_issue_fields["security"] = {"name": self.security_level}
@@ -477,7 +494,7 @@ class JiraMigrator(object):
             if not new_key_resp.ok:
                 try:
                     msg = new_key_resp.json()["errorMessages"][0]
-                except KeyError, IndexError:
+                except (KeyError, IndexError):
                     msg = new_key_resp.text
                 warnings.append("Couldn't write Migrated New Key field in old issue: {}".format(msg))
 
