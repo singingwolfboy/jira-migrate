@@ -163,6 +163,16 @@ class Jira(object):
             if value["custom"]
         }
 
+    @property
+    def user_fields(self):
+        """
+        Returns a set of field IDs that are of type "user"
+        """
+        return set(
+            id for id, value in self.field_name
+            if value.get("schema", {}).get("type", "") == "user"
+        )
+
     @memoize
     def get_resource(self, resource):
         resp = self.get("/rest/api/2/{resource}".format(resource=resource))
