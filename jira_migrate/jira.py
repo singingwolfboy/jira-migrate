@@ -11,6 +11,12 @@ class MissingUserInfo(Exception):
     pass
 
 
+def pop_dict_id(d):
+    id = d["id"]
+    del d["id"]
+    return (id, d)
+
+
 # used by `Jira.resource_map()` and friends
 MAPPED_RESOURCES = ("project", "issuetype", "priority", "resolution", "status")
 
@@ -142,13 +148,20 @@ class Jira(object):
         return self.user_map[username]
 
     @property
-    def custom_field_map(self):
-        """
-        Returns a mapping of custom field ID to name of the custom field.
-        """
+    def field_map(self):
         field_resp = self.get_resource("field")
-        fields = {f["id"]: f["name"] for f in field_resp.json() if f["custom"]}
-        return fields
+        return dict(pop_dict_id(f) for f in field_resp.json())
+
+    @property
+    def custom_field_names(self):
+        """
+        Returns a mapping of custom field name to system ID.
+        """
+        return {
+            value["name"]: id
+            for id, value in self.field_map.items()
+            if value["custom"]
+        }
 
     @memoize
     def get_resource(self, resource):

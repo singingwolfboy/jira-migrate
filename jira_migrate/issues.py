@@ -85,23 +85,19 @@ class JiraMigrator(object):
 
     def fetch_field_info(self):
         # grab field information
-        self.old_custom_fields = self.old_jira.custom_field_map
-        self.new_custom_fields = self.new_jira.custom_field_map
-
-        # invert it: name to ID
-        self.old_custom_fields_inv = {name: id for id, name in self.old_custom_fields.items()}
-        self.new_custom_fields_inv = {name: id for id, name in self.new_custom_fields.items()}
+        self.old_custom_field_names = self.old_jira.custom_field_names
+        self.new_custom_field_names = self.new_jira.custom_field_names
 
         # map of custom field ID on the old JIRA to custom field ID on the new JIRA
         # (only contains fields present on old instance)
         self.custom_fields_old_id_to_new_id = {
-            old_id: self.new_custom_fields_inv[name]
-            for old_id, name in self.old_custom_fields.items()
-            if name in self.new_custom_fields_inv
+            old_id: self.new_custom_field_names[name]
+            for name, old_id in self.old_custom_field_names.items()
+            if name in self.new_custom_field_names
         }
 
         for name in ("Migrated New Key",):
-            if name not in self.old_custom_fields_inv:
+            if name not in self.old_custom_field_names:
                 raise JiraIssueError("You need to create a {} custom field in the old JIRA".format(name))
 
         new_custom_field_names = (
@@ -109,16 +105,16 @@ class JiraMigrator(object):
             "Migrated Creation Date", "Migrated Close Date",
         )
         for name in new_custom_field_names:
-            if name not in self.new_custom_fields_inv:
+            if name not in self.new_custom_field_names:
                 raise JiraIssueError("You need to create a {} custom field in the new JIRA".format(name))
 
         # For these fields, we'll attempt to set the value on the migrated ticket,
         # but if it fails, then we'll retry without setting the field.
         self.attempted_fields = set((
-            self.new_custom_fields_inv["Business Value"],
-            self.new_custom_fields_inv["Flagged"],
+            self.new_custom_field_names["Business Value"],
+            self.new_custom_field_names["Flagged"],
             # we can't set story points on subtasks, because JIRA is annoying
-            self.new_custom_fields_inv["Story Points"],
+            self.new_custom_field_names["Story Points"],
         ))
 
         # Don't even try to set these fields -- it just won't work.
@@ -131,11 +127,11 @@ class JiraMigrator(object):
             # structural things we do another way:
             "subtasks", "comment", "attachment", "resolution",
             # custom fields that cannot be set
-            self.new_custom_fields_inv["Rank (Obsolete)"],
-            self.new_custom_fields_inv["Testing Status"],
-            self.new_custom_fields_inv["[CHART] Time in Status"],
-            self.new_custom_fields_inv["[CHART] Date of First Response"],
-            self.new_custom_fields_inv["Epic Status"],
+            self.new_custom_field_names["Rank (Obsolete)"],
+            self.new_custom_field_names["Testing Status"],
+            self.new_custom_field_names["[CHART] Time in Status"],
+            self.new_custom_field_names["[CHART] Date of First Response"],
+            self.new_custom_field_names["Epic Status"],
         ))
 
     def should_issue_be_private(self, issue_info):
@@ -155,8 +151,8 @@ class JiraMigrator(object):
                     field = self.custom_fields_old_id_to_new_id[field]
                 else:
                     continue
-                if field == self.new_custom_fields_inv["Sprint"] and value:
-                    field = self.new_custom_fields_inv["Migrated Sprint"]
+                if field == self.new_custom_field_names["Sprint"] and value:
+                    field = self.new_custom_field_names["Migrated Sprint"]
                     new_value = []
                     for sprint in [self.parse_sprint_string(s) for s in value]:
                         if sprint:
@@ -164,7 +160,7 @@ class JiraMigrator(object):
                     value = new_value
             elif field == "status":
                 # can't set status directly, so use a custom field
-                field = self.new_custom_fields_inv["Migrated Status"]
+                field = self.new_custom_field_names["Migrated Status"]
                 value = [value["name"].replace(" ", "_")]
             elif field in MAPPED_RESOURCES and value:
                 try:
@@ -182,12 +178,12 @@ class JiraMigrator(object):
             new_issue_fields["security"] = {"name": self.security_level}
 
         # Store the original key.
-        new_issue_fields[self.new_custom_fields_inv["Migrated Original Key"]] = old_issue["key"]
+        new_issue_fields[self.new_custom_field_names["Migrated Original Key"]] = old_issue["key"]
         # Store the original creation date
-        new_issue_fields[self.new_custom_fields_inv["Migrated Creation Date"]] = old_issue["fields"]["created"]
+        new_issue_fields[self.new_custom_field_names["Migrated Creation Date"]] = old_issue["fields"]["created"]
         # Store the original resolution date, if present
         if old_issue["fields"]["resolutiondate"]:
-            new_issue_fields[self.new_custom_fields_inv["Migrated Close Date"]] = old_issue["fields"]["resolutiondate"]
+            new_issue_fields[self.new_custom_field_names["Migrated Close Date"]] = old_issue["fields"]["resolutiondate"]
 
         new_issue = {"fields": new_issue_fields}
         # it would be nice if we could specify the key for the new issue,
@@ -300,7 +296,7 @@ class JiraMigrator(object):
             old_issue['fields']['parent'] = {'key': new_parent_key}
 
         # If the issue is in an epic, we need to migrate the epic first.
-        epic_field_id = self.old_custom_fields_inv["Epic Link"]
+        epic_field_id = self.old_custom_field_names["Epic Link"]
         if old_issue['fields'].get(epic_field_id, None):
             epic_key = old_issue['fields'][epic_field_id]
             print("Migrating epic {}".format(epic_key))
@@ -340,8 +336,8 @@ class JiraMigrator(object):
         if not new_issue_resp.ok:
             errors = new_issue_body["errors"]
             for field, _ in errors.items():
-                if field in self.new_custom_fields_inv:
-                    errors[field] += " ({})".format(self.new_custom_fields_inv[field])
+                if field in self.new_custom_field_names:
+                    errors[field] += " ({})".format(self.new_custom_field_names[field])
             print("=" * 20, " tried to make:")
             pprint(new_issue)
             print("=" * 20, " got this back:")
@@ -469,7 +465,7 @@ class JiraMigrator(object):
             # Don't fail this whole function if this update fails, since that
             # will tell the caller that we couldn't migrate the issue, and it
             # will be migrated again.
-            new_key_field = self.old_custom_fields_inv["Migrated New Key"]
+            new_key_field = self.old_custom_field_names["Migrated New Key"]
             data = {
                 "fields": {
                     new_key_field: new_key,
@@ -512,7 +508,7 @@ class JiraMigrator(object):
             new_fields = new_issue["fields"]
 
             if not old_key:
-                old_key_field = self.new_custom_fields_inv["Migrated Original Key"]
+                old_key_field = self.new_custom_field_names["Migrated Original Key"]
                 old_key = new_fields[old_key_field]
                 if not old_key:
                     msg = (
@@ -530,7 +526,7 @@ class JiraMigrator(object):
         old_fields = old_issue["fields"]
 
         if not new_key:
-            new_key_field = self.old_custom_fields_inv["Migrated New Key"]
+            new_key_field = self.old_custom_field_names["Migrated New Key"]
             new_key = old_fields[new_key_field]
             if not new_key:
                 msg = (
@@ -552,20 +548,20 @@ class JiraMigrator(object):
             primary_key = old_key
             primary_fields = old_fields
             primary_jira = self.old_jira
-            primary_custom_fields = self.old_custom_fields_inv
+            primary_custom_fields = self.old_custom_field_names
             replica_key = new_key
             replica_fields = new_fields
             replica_jira = self.new_jira
-            replica_custom_fields = self.new_custom_fields_inv
+            replica_custom_fields = self.new_custom_field_names
         else:
             primary_key = new_key
             primary_fields = new_fields
             primary_jira = self.new_jira
-            primary_custom_fields = self.new_custom_fields_inv
+            primary_custom_fields = self.new_custom_field_names
             replica_key = old_key
             replica_fields = old_fields
             replica_jira = self.old_jira
-            replica_custom_fields = self.old_custom_fields_inv
+            replica_custom_fields = self.old_custom_field_names
 
         made_changes = False
         updated_resolution = False
@@ -615,8 +611,8 @@ class JiraMigrator(object):
                 update_fields["assignee"] = {"name": p_assignee_name}
 
         # if we're syncing forwards, make sure we've set the original creation date and resolution date
-        migrated_creation_date_field = self.new_custom_fields_inv["Migrated Creation Date"]
-        migrated_closed_date_field = self.new_custom_fields_inv["Migrated Close Date"]
+        migrated_creation_date_field = self.new_custom_field_names["Migrated Creation Date"]
+        migrated_closed_date_field = self.new_custom_field_names["Migrated Close Date"]
         if forwards:
             if not new_fields[migrated_creation_date_field] and old_fields["created"]:
                 update_fields[migrated_creation_date_field] = old_fields["created"]
