@@ -149,13 +149,13 @@ class JiraMigrator(object):
             if not value:
                 continue
 
-            field_info = self.old_jira.field_map[field]
+            field_info = self.old_jira.field_map.get(field, {})
             if "custom" in field_info.get("schema", {}):
                 custom_type = field_info["schema"]["custom"].rsplit(":", 1)[-1]
             else:
                 custom_type = None
 
-            if field_info["custom"]:
+            if field_info.get("custom", False):
                 if field in self.custom_fields_old_id_to_new_id:
                     field = self.custom_fields_old_id_to_new_id[field]
                 else:
