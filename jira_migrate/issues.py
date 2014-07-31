@@ -115,6 +115,10 @@ class JiraMigrator(object):
             self.new_custom_field_names["Flagged"],
             # we can't set story points on subtasks, because JIRA is annoying
             self.new_custom_field_names["Story Points"],
+            self.new_custom_field_names["Certificate Issued Date"],
+            self.new_custom_field_names["About Video URL"],
+            self.new_custom_field_names["Course Dollar Amounts"],
+            self.new_custom_field_names["In XSeries"],
         ))
 
         # Don't even try to set these fields -- it just won't work.
@@ -127,6 +131,7 @@ class JiraMigrator(object):
             # structural things we do another way:
             "subtasks", "comment", "attachment", "resolution",
             # custom fields that cannot be set
+            self.new_custom_field_names["Rank"],
             self.new_custom_field_names["Rank (Obsolete)"],
             self.new_custom_field_names["Testing Status"],
             self.new_custom_field_names["[CHART] Time in Status"],
