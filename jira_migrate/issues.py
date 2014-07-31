@@ -146,7 +146,7 @@ class JiraMigrator(object):
     def transform_old_issue_to_new(self, old_issue, warnings):
         new_issue_fields = {}
         for field, value in old_issue["fields"].items():
-            if not value or field in self.ignored_fields:
+            if not value:
                 continue
 
             field_info = self.old_jira.field_map[field]
@@ -154,8 +154,6 @@ class JiraMigrator(object):
                 custom_type = field_info["schema"]["custom"].rsplit(":", 1)[-1]
             else:
                 custom_type = None
-            # if field_info["name"] == "Is Rerun":
-            #     import pdb; pdb.set_trace()
 
             if field_info["custom"]:
                 if field in self.custom_fields_old_id_to_new_id:
@@ -182,6 +180,8 @@ class JiraMigrator(object):
                     warnings.append("{name!r} is not a valid {field!r}".format(
                         name=value["name"], field=field
                     ))
+            if field in self.ignored_fields:
+                continue
             # handle fields with limited options
             if custom_type == "select":
                 value = {"value": value["value"]}
