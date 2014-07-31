@@ -326,7 +326,7 @@ class JiraMigrator(object):
             self.also_run_issues(st["key"] for st in old_issue["fields"]["subtasks"])
 
         for field in self.old_jira.user_fields:
-            user_info = old_issue["fields"][field]
+            user_info = old_issue["fields"].get(field)
             if user_info:
                 self.new_jira.get_or_create_user(user_info)
 
