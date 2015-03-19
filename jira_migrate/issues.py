@@ -381,7 +381,10 @@ class JiraMigrator(object):
             resolution = old_issue["fields"]["resolution"]["name"]
         else:
             resolution = None
-        self.new_jira.transition(new_key, status, resolution=resolution)
+        try:
+            self.new_jira.transition(new_key, status, resolution=resolution)
+        except requests.exceptions.RequestException as e:
+            raise JiraIssueError(e.message)
 
         # A number of things get added as comments.  We collect them up, sort
         # them by date, and add them all at the end.

@@ -255,7 +255,7 @@ class Jira(object):
 
                 set_transition_resp = self.post(transitions_url, as_json=data)
                 if not set_transition_resp.ok:
-                    msgs = set_transition_resp.json()["errorMessages"]
+                    msgs = set_transition_resp.text
                     raise requests.exceptions.RequestException(msgs)
                 return True
 
