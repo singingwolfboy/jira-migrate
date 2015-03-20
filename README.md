@@ -38,3 +38,11 @@ that you specify in your config file using the `destination.private-id` option.
 Note that due to a limitation of the JIRA REST API, you *must* specify the ID
 of the security level that you wish private issues to be created with -- this
 security level ID cannot be autodetected.
+
+## Security Level
+
+If you want your issues to be put into a security level on the migrated instance,
+you should add a `security-level` to the `[destination]` category. For example:
+
+    [destination]
+    security-level=Confidential
